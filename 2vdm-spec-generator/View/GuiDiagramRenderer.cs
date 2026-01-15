@@ -473,7 +473,7 @@ namespace _2vdm_spec_generator.View
             if (!string.IsNullOrWhiteSpace(button.Name))
             {
                 var btnName = button.Name.Trim();
-                var ev = events.FirstOrDefault(evt => !string.IsNullOrWhiteSpace(evt.Name) && evt.Name.Trim().StartsWith(btnName, StringComparison.OrdinalIgnoreCase));
+                var ev = events.FirstOrDefault(evt => !string.IsNullOrWhiteSpace(evt.Name) && string.Equals(evt.Name.Trim(), btnName, StringComparison.OrdinalIgnoreCase));
                 if (ev != null) return ev;
             }
 

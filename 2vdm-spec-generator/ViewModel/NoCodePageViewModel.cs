@@ -885,13 +885,17 @@ namespace _2vdm_spec_generator.ViewModel
                 return;
             }
 
-            string newTarget = await Shell.Current.DisplayPromptAsync(
-                "イベント変更",
-                $"イベントを変更する（現在: \"{oldTarget}\"）\n新しいイベントを入力してください。",
-                "OK", "キャンセル",
-                placeholder: "例: 画面A",
-                initialValue: oldTarget
-            );
+            var popup = new ConditionInputPopup
+            {
+                RequireCondition = false,
+                InitialTarget = oldTarget,
+            };
+
+            var result = await Shell.Current.CurrentPage.ShowPopupAsync(popup);
+            if (result is not ValueTuple<string, string> values) return;
+
+
+            string newTarget = values.Item2?.Trim();
 
             if (string.IsNullOrWhiteSpace(newTarget)) return;
             newTarget = newTarget.Trim();
@@ -982,27 +986,21 @@ namespace _2vdm_spec_generator.ViewModel
             string oldCond = (oldBranch.Condition ?? string.Empty).Trim();
             string oldTarget = (oldBranch.Target ?? string.Empty).Trim();
 
-            // 新しい条件
-            string newCond = await Shell.Current.DisplayPromptAsync(
-                "分岐編集（条件）",
-                $"分岐 {branchIndex + 1}/{parent.Branches.Count}\n条件を入力してください",
-                "OK", "キャンセル",
-                placeholder: "例: 表示部に1が入力されている",
-                initialValue: oldCond
-            );
-            if (string.IsNullOrWhiteSpace(newCond)) return;
-            newCond = newCond.Trim();
+            var popup = new ConditionInputPopup
+            {
+                RequireCondition = true,
+                InitialCondition = oldCond,
+                InitialTarget = oldTarget,
+            };
 
-            // 新しい遷移先
-            string newTarget = await Shell.Current.DisplayPromptAsync(
-                "分岐編集（遷移先）",
-                $"分岐 {branchIndex + 1}/{parent.Branches.Count}\n遷移先を入力してください",
-                "OK", "キャンセル",
-                placeholder: "例: 画面K",
-                initialValue: oldTarget
-            );
-            if (newTarget == null) return; // キャンセル
-            newTarget = newTarget.Trim();
+            var result = await Shell.Current.CurrentPage.ShowPopupAsync(popup);
+            if (result is not ValueTuple<string, string> values) return;
+
+
+            string newCond = (values.Item1 ?? "").Trim();
+            string newTarget = (values.Item2 ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(newCond)) return;
+            if (string.IsNullOrWhiteSpace(newTarget)) return;
 
             // 変化なしなら終了
             if (string.Equals(oldCond, newCond, StringComparison.Ordinal) &&
@@ -1652,6 +1650,33 @@ namespace _2vdm_spec_generator.ViewModel
                 }
             }
 
+            if (el.Type == GuiElementType.Timeout)
+            {
+                for (int i = lines.Count - 1; i >= 0; i--)
+                {
+                    var t = lines[i].Trim();
+                    if ((t.StartsWith("- ") || t.StartsWith("* ")) && t.Contains("秒でタイムアウト"))
+                    {
+                        lines.RemoveAt(i);
+                        changed = true;
+                    }
+                }
+
+                // 2) イベント一覧の「- タイムアウト → ...」行を削除（遷移先なし版も削除）
+                for (int i = lines.Count - 1; i >= 0; i--)
+                {
+                    var t = lines[i].TrimStart();
+                    if (t.StartsWith("- タイムアウト", StringComparison.Ordinal) ||
+                        t.StartsWith("* タイムアウト", StringComparison.Ordinal))
+                    {
+                        // 例: "- タイムアウト → 画面Aへ" / "- タイムアウト"
+                        // タイムアウト以外（「タイムアウトを含む別文」）を誤消ししたくない場合は StartsWith のままでOK
+                        lines.RemoveAt(i);
+                        changed = true;
+                    }
+                }
+            }
+
             // 4) 画面一覧（"- {name}"）などで残る可能性がある重複も上で削除済みなのでそのまま
             if (!changed) return markdown;
 
@@ -1873,7 +1898,8 @@ namespace _2vdm_spec_generator.ViewModel
                 return;
 
             var mdPath = SelectedItem.FullPath;
-            var md = File.Exists(mdPath) ? File.ReadAllText(mdPath) : "";
+            var md = ReadAndNormalizeMarkdown(mdPath);
+
 
             if (el.Type == GuiElementType.Button)
             {
@@ -1943,7 +1969,8 @@ namespace _2vdm_spec_generator.ViewModel
             if (SelectedItem == null || string.IsNullOrWhiteSpace(SelectedItem.FullPath)) return;
 
             string mdPath = SelectedItem.FullPath;
-            string md = File.Exists(mdPath) ? File.ReadAllText(mdPath) : "";
+            string md = ReadAndNormalizeMarkdown(mdPath);
+
             var first = md.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).FirstOrDefault()?.Trim() ?? "";
 
             // ===== ボタン貼り付け =====
@@ -1954,6 +1981,13 @@ namespace _2vdm_spec_generator.ViewModel
                     await Application.Current.MainPage.DisplayAlert("情報", "ボタン貼り付けは画面仕様（先頭が '## '）のMarkdownで行ってください。", "OK");
                     return;
                 }
+
+                // ★ 既定名：コピー／コピー１／コピー２…
+                string defaultCopyName = GetNextCopyName(name =>
+                    GuiElements.Any(g => g.Type == GuiElementType.Button
+                        && !string.IsNullOrWhiteSpace(g.Name)
+                        && string.Equals(g.Name.Trim(), name, StringComparison.Ordinal))
+                );
 
                 string newName = await Shell.Current.DisplayPromptAsync(
                     "貼り付け（ボタン）",
@@ -1973,8 +2007,12 @@ namespace _2vdm_spec_generator.ViewModel
                     await Application.Current.MainPage.DisplayAlert("重複", $"既に同名のボタン \"{newName}\" が存在します。", "OK");
                     return;
                 }
+                // ★ 重複判定は「押下 → 画面名」側の画面名で行う
+                string transitionTargetName = GetNextCopyName(name => TransitionTargetExistsInEventLines(md, name));
 
-                string updated = _uiToMd.PasteButtonWithEventsIntoMarkdown(md, _copiedNode.Name, newName, _copiedNode.EventBlocks);
+
+                string updated = _uiToMd.PasteButtonWithEventsIntoMarkdown(md,_copiedNode.Name ,newName, _copiedNode.EventBlocks, transitionTargetName);
+
 
                 File.WriteAllText(mdPath, updated, Encoding.UTF8);
 
@@ -1995,6 +2033,9 @@ namespace _2vdm_spec_generator.ViewModel
 
                 return;
             }
+
+
+
 
             // ===== 画面貼り付け =====
             if (_copiedNode.Type == GuiElementType.Screen)
@@ -2051,6 +2092,70 @@ namespace _2vdm_spec_generator.ViewModel
             }
 
             await Application.Current.MainPage.DisplayAlert("情報", "このタイプは貼り付け対象外です。", "OK");
+        }
+
+
+
+        private static string ToZenkakuDigits(int n)
+        {
+            // 1 -> "１", 12 -> "１２"
+            var s = n.ToString();
+            char[] a = s.ToCharArray();
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] >= '0' && a[i] <= '9')
+                    a[i] = (char)('０' + (a[i] - '0'));
+            }
+            return new string(a);
+        }
+
+        private static string GetNextCopyName(Func<string, bool> exists)
+        {
+            // 0: コピー, 1: コピー１, 2: コピー２, ...
+            if (!exists("コピー")) return "コピー";
+
+            for (int i = 1; i < 10000; i++)
+            {
+                var name = "コピー" + ToZenkakuDigits(i);
+                if (!exists(name)) return name;
+            }
+
+            // まず起きないが保険
+            return "コピー" + DateTime.Now.ToString("yyyyMMddHHmmss");
+        }
+        private static bool TransitionTargetExistsInEventLines(string markdown, string targetName)
+        {
+            if (string.IsNullOrWhiteSpace(markdown) || string.IsNullOrWhiteSpace(targetName)) return false;
+
+            var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            foreach (var raw in lines)
+            {
+                var line = raw.Trim();
+
+                // 箇条書き揺れを許容（- / *）
+                if (!(line.StartsWith("- ", StringComparison.Ordinal) || line.StartsWith("* ", StringComparison.Ordinal)))
+                    continue;
+
+                // 矢印が無いなら除外
+                int arrow = line.IndexOf("→", StringComparison.Ordinal);
+                if (arrow < 0) continue;
+
+                // 右側を取り出す
+                var right = line[(arrow + 1)..].Trim(); // "→" の次から
+                if (right.StartsWith("→", StringComparison.Ordinal)) right = right[1..].Trim();
+
+                // 右側が "...へ" で終わる遷移だけ対象にする
+                if (!right.EndsWith("へ", StringComparison.Ordinal)) continue;
+
+                // "画面名へ" の「画面名」を取り出す
+                var name = right[..^1].Trim(); // 末尾の「へ」を落とす
+
+                if (string.Equals(name, targetName, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
 

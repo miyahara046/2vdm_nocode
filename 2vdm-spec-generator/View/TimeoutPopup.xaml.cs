@@ -96,8 +96,7 @@ namespace _2vdm_spec_generator.View
             var target = TargetEntry.Text?.Trim();
             if (string.IsNullOrWhiteSpace(target))
             {
-                Application.Current?.MainPage?.DisplayAlert("“ü—ÍƒGƒ‰[", "‘JˆÚæ‚ğ“ü—Í‚µ‚Ä‚­‚¾‚³‚¢B", "OK");
-                return;
+                target = null;
             }
 
             Close((seconds, target));
