@@ -13,6 +13,9 @@ namespace _2vdm_spec_generator.View
 
         // フラグ: 条件入力を必須にするか
         public bool RequireCondition { get; set; } = true;
+        // ★ 追加
+        public string InitialCondition { get; set; }
+        public string InitialTarget { get; set; }
 
         // Windows ネイティブハンドラを二重登録しないように追跡
         private readonly HashSet<Microsoft.Maui.Controls.Entry> _nativeHandlerAttached = new();
@@ -20,26 +23,26 @@ namespace _2vdm_spec_generator.View
         public ConditionInputPopup()
         {
             InitializeComponent();
+
+            // 初期タブは一旦 Add（後で InitialTarget から上書き）
             SetSelectedTab(TabType.Add);
 
-            // RequireCondition に応じた UI 表示を初期化
-            UpdateRequireCondition();
+            // Opened イベントで初期化を行う
+            this.Opened += ConditionInputPopup_Opened;
 
-            // Enter キーで確定／フォーカス移動: Completed を接続
+            // Enter キーで確定／フォーカス移動
             try
             {
                 ConditionEntry.Completed += ConditionEntry_Completed;
                 TargetEntry.Completed += TargetEntry_Completed;
             }
-            catch
-            {
-                // 無視
-            }
+            catch { }
 
-            // Windows では Esc を捕まえてキャンセルするためネイティブキーイベントを接続
             ConditionEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(ConditionEntry);
             TargetEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(TargetEntry);
         }
+
+
 
         private void ConditionEntry_Completed(object sender, EventArgs e)
         {
@@ -265,5 +268,76 @@ namespace _2vdm_spec_generator.View
 
             Close((condition, target));
         }
+
+        private void ConditionInputPopup_Opened(object sender, EventArgs e)
+        {
+            try
+            {
+                // ★ InitialTarget からタブ推定（編集時に自然）
+                ApplyInitialTabFromTarget();
+
+                // ★ RequireCondition の反映（タブ確定後）
+                UpdateRequireCondition();
+
+                // ★ 初期値を Entry に反映
+                ApplyInitialValues();
+
+                // フォーカス制御（任意）
+                if (RequireCondition)
+                    ConditionEntry?.Focus();
+                else
+                    TargetEntry?.Focus();
+            }
+            catch
+            {
+                // 無視
+            }
+        }
+
+        private void ApplyInitialValues()
+        {
+            try
+            {
+                if (InitialCondition != null)
+                    ConditionEntry.Text = InitialCondition;
+
+                if (InitialTarget != null)
+                    TargetEntry.Text = InitialTarget;
+            }
+            catch
+            {
+                // 無視
+            }
+        }
+
+        private void ApplyInitialTabFromTarget()
+        {
+            if (string.IsNullOrWhiteSpace(InitialTarget)) return;
+
+            var t = InitialTarget.Trim();
+
+            if (string.Equals(t, "削除", StringComparison.Ordinal))
+            {
+                SetSelectedTab(TabType.Delete);
+                return;
+            }
+
+            if (t.EndsWith("へ", StringComparison.Ordinal))
+            {
+                SetSelectedTab(TabType.Transition);
+                return;
+            }
+
+            // 「表示部にXを追加」系
+            if (t.StartsWith("表示部に", StringComparison.Ordinal) && t.EndsWith("を追加", StringComparison.Ordinal))
+            {
+                SetSelectedTab(TabType.Add);
+                return;
+            }
+
+            SetSelectedTab(TabType.Other);
+        }
+
+
     }
 }

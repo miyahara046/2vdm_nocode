@@ -1,11 +1,12 @@
-﻿using Markdig;
+﻿using _2vdm_spec_generator.ViewModel;
+using Markdig;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.IO;
-using _2vdm_spec_generator.ViewModel;
 
 namespace _2vdm_spec_generator.Services
 {
@@ -498,20 +499,30 @@ namespace _2vdm_spec_generator.Services
                         break;
                     }
                 }
-
-                string actionLine = $"- タイムアウト → {target}へ";
-
-                if (actionLineIndex != -1)
+                if (target != null)
                 {
-                    // 既存行を上書き（セクション内）
-                    lines[actionLineIndex] = actionLine;
+                    string actionLine = $"- タイムアウト → {target}へ";
+
+                    if (actionLineIndex != -1)
+                    {
+                        // 既存行を上書き（セクション内）
+                        lines[actionLineIndex] = actionLine;
+                    }
+                    else
+                    {
+                        // セクション末尾（sectionEnd）に挿入
+                        lines.Insert(sectionEnd, actionLine);
+                    }
                 }
                 else
                 {
-                    // セクション末尾（sectionEnd）に挿入
-                    lines.Insert(sectionEnd, actionLine);
+                    // target が null の場合は既存行を削除
+                    if (actionLineIndex != -1)
+                    {
+                        lines.RemoveAt(actionLineIndex);
+                    }
                 }
-            }
+                }
 
             lines = NormalizeEmptyLines(lines);
             lines = EnsureButtonBeforeEvent(lines);
@@ -1076,8 +1087,14 @@ namespace _2vdm_spec_generator.Services
         /// ボタン貼り付け（ボタン一覧 + イベント一覧）を Markdown に反映する。
         /// copiedBlocks は "oldButton 押下" のブロック群で、newButton に置換して挿入される。
         /// </summary>
-        public string PasteButtonWithEventsIntoMarkdown(string markdown, string oldButton, string newButton, List<List<string>> copiedBlocks)
+        /// 
+        // "- xxx → yyy" を分解する（インデント維持）
+        private static readonly Regex EventArrowRegex =
+            new Regex(@"^(?<head>\s*-\s*.*?\s*)→\s*(?<right>.*)$", RegexOptions.Compiled);
+
+        public string PasteButtonWithEventsIntoMarkdown(string markdown, string oldButton, string newButton, List<List<string>> copiedBlocks, string transitionTargetName)
         {
+
             var lines = (markdown ?? string.Empty).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).ToList();
 
             // ボタン一覧へ追加
@@ -1143,15 +1160,31 @@ namespace _2vdm_spec_generator.Services
                 }
                 if (insertAt < 0) insertAt = lines.Count;
 
+                // ブロック挿入（ボタン名差し替え + 遷移先を「コピーへ」に上書き）
                 var toInsert = new List<string>();
                 foreach (var block in copiedBlocks)
                 {
                     foreach (var line in block)
                     {
+                        // 1) まずボタン名を差し替え（インデントは維持）
                         string replaced = line.Replace(oldButton + "押下", newButton + "押下", StringComparison.Ordinal);
+
+                        // 2) 「→ 〜へ」の遷移系だけ、右側を「コピーへ」に変更
+                        //    - 例: "- ボタン1押下 → 画面Aへ"  -> "- コピー押下 → コピーへ"
+                        //    - 分岐行: "  - 条件 → 画面Kへ"  -> "  - 条件 → コピーへ"
+                        var m = EventArrowRegex.Match(replaced);
+                        if (m.Success)
+                        {
+                            var right = (m.Groups["right"].Value ?? "").Trim();
+                            
+                                replaced = $"{m.Groups["head"].Value}→{transitionTargetName}へ";
+                            
+                        }
+
                         toInsert.Add(replaced);
                     }
                 }
+
 
                 lines.InsertRange(insertAt, toInsert);
             }
