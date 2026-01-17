@@ -1234,7 +1234,15 @@ namespace _2vdm_spec_generator.ViewModel
 
                 if (string.IsNullOrEmpty(selectedButton) || selectedButton == "キャンセル") return;
             }
-
+            if (HasSingleEventForButton(selectedButton))
+            {
+                await Shell.Current.DisplayAlert(
+                "追加できません",
+                $"ボタン \"{selectedButton}\" には既に単一イベントが設定されています。編集を行う場合は既存イベントを編集してください。",
+                "OK"
+                );
+                return;
+            }
 
             bool isConditional = await Shell.Current.DisplayAlert(
                 "条件分岐イベント",
@@ -1324,6 +1332,101 @@ namespace _2vdm_spec_generator.ViewModel
             // 再読込して GuiElements を更新（マークダウン → GUI 表示の整合性を取る）
             LoadMarkdownAndVdm(path);
         }
+
+        private bool HasSingleEventForButton(string buttonName)
+        {
+            if (string.IsNullOrWhiteSpace(buttonName)) return false;
+
+            var bn = buttonName.Trim();
+
+            // ===== 1) GuiElements で判定（Target連携が取れている場合は最速＆確実） =====
+            if (GuiElements != null)
+            {
+                var btn = GuiElements.FirstOrDefault(e =>
+                    e.Type == GuiElementType.Button &&
+                    !string.IsNullOrWhiteSpace(e.Name) &&
+                    string.Equals(e.Name.Trim(), bn, StringComparison.OrdinalIgnoreCase));
+
+                // ボタンに Target が入っている → それを参照する非分岐Eventがあるなら「単一イベントあり」
+                if (btn != null && !string.IsNullOrWhiteSpace(btn.Target))
+                {
+                    var t = btn.Target.Trim();
+                    var hit = GuiElements.Any(e =>
+                        e.Type == GuiElementType.Event &&
+                        (e.Branches == null || e.Branches.Count == 0) &&
+                        (
+                            (!string.IsNullOrWhiteSpace(e.Target) && string.Equals(e.Target.Trim(), t, StringComparison.OrdinalIgnoreCase)) ||
+                            // 念のため Name 側も見る（実装差分に強くする）
+                            (!string.IsNullOrWhiteSpace(e.Name) && string.Equals(e.Name.Trim(), t, StringComparison.OrdinalIgnoreCase))
+                        ));
+                    if (hit) return true;
+                }
+
+                // 後方互換：「{button}押下」で始まる Event.Name 形式（古い表現）
+                var prefix = $"{bn}押下";
+                if (GuiElements.Any(e =>
+                    e.Type == GuiElementType.Event &&
+                    (e.Branches == null || e.Branches.Count == 0) &&
+                    !string.IsNullOrWhiteSpace(e.Name) &&
+                    e.Name.TrimStart().StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+
+            // ===== 2) フォールバック：カレントMarkdownを走査して「単一イベント行」を検出 =====
+            // GuiElements の紐付け（button.Target）が作れなかった場合でも確実に止める
+            if (SelectedItem == null || !SelectedItem.IsFile) return false;
+            var mdPath = SelectedItem.FullPath;
+            var md = GetCurrentMarkdown(mdPath);
+            if (string.IsNullOrWhiteSpace(md)) return false;
+
+            var lines = md.Split('\n');
+
+            int eventIdx = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].Trim() == "### イベント一覧")
+                {
+                    eventIdx = i;
+                    break;
+                }
+            }
+            if (eventIdx < 0) return false;
+
+            // 「- {bn}押下 → ...」の行が存在し、かつ次行がインデントで始まらないなら「単一イベント」とみなす
+            for (int i = eventIdx + 1; i < lines.Length; i++)
+            {
+                var t = lines[i].TrimEnd();
+
+                // 次の見出しに到達したら終了
+                if (t.StartsWith("### ")) break;
+
+                var trim = t.TrimStart();
+
+                // ブロック先頭以外は無視
+                if (!trim.StartsWith("- ")) continue;
+
+                // 先頭行判定
+                // 例: "- 1押下 → 表示部に1を追加"
+                var head = trim.Substring(2).TrimStart();
+                if (!head.StartsWith($"{bn}押下", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // 単一イベント判定：次行がインデント（条件分岐）なら単一ではない
+                var next = (i + 1 < lines.Length) ? lines[i + 1] : "";
+                var nextTrimStart = next.TrimStart();
+
+                bool nextIsIndented = next.Length > 0 && (next.StartsWith("  ") || next.StartsWith("\t"));
+                if (!nextIsIndented)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
 
         [RelayCommand]
         private async Task AddTimeoutEventAsync()
