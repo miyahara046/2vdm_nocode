@@ -63,6 +63,22 @@ namespace _2vdm_spec_generator.ViewModel
             return NormalizeMarkdownText(sr.ReadToEnd());
         }
 
+        private string GetCurrentMarkdown(string path)
+        {
+            // 選択中ファイルの操作なら、まずカレントを優先する
+            if (SelectedItem != null &&
+                SelectedItem.IsFile &&
+                string.Equals(SelectedItem.FullPath, path, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrEmpty(MarkdownContent))
+            {
+                return NormalizeMarkdownText(MarkdownContent);
+            }
+
+            // それ以外はファイルを読み正規化
+            return ReadAndNormalizeMarkdown(path);
+        }
+
+
         private static string GetFirstNonEmptyLine(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return string.Empty;
@@ -540,7 +556,7 @@ namespace _2vdm_spec_generator.ViewModel
             }
 
             string path = SelectedItem.FullPath;
-            string currentMarkdown = File.Exists(path) ? File.ReadAllText(path) : string.Empty;
+            string currentMarkdown = GetCurrentMarkdown(path);
 
             var builder = _uiToMd;
             string newMarkdown = classType switch
@@ -598,7 +614,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             string mdPath = SelectedItem.FullPath;
             var converter = new MarkdownToVdmConverter();
-            VdmContent = converter.ConvertToVdm(File.ReadAllText(mdPath));
+            VdmContent = converter.ConvertToVdm(GetCurrentMarkdown(mdPath));
             File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), VdmContent);
         }
 
@@ -613,7 +629,7 @@ namespace _2vdm_spec_generator.ViewModel
             if (string.IsNullOrWhiteSpace(screenName)) return;
 
             string path = SelectedItem.FullPath;
-            string currentMarkdown = File.ReadAllText(path);
+            string currentMarkdown = GetCurrentMarkdown(path);
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddScreenList(currentMarkdown, screenName.Trim());
@@ -648,7 +664,7 @@ namespace _2vdm_spec_generator.ViewModel
             }
 
             string path = SelectedItem.FullPath;
-            string currentMarkdown = File.ReadAllText(path);
+            string currentMarkdown = GetCurrentMarkdown(path);
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddButton(currentMarkdown, normalized);
@@ -747,7 +763,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             try
             {
-                string currentMarkdown = File.Exists(mdPath) ? File.ReadAllText(mdPath) : string.Empty;
+                string currentMarkdown = GetCurrentMarkdown(mdPath);
 
                 string updatedMarkdown = RenameButtonInMarkdown(currentMarkdown, oldName, newName);
 
@@ -905,7 +921,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             try
             {
-                string currentMarkdown = File.Exists(mdPath) ? File.ReadAllText(mdPath) : string.Empty;
+                string currentMarkdown = GetCurrentMarkdown(mdPath);
 
                 string updatedMarkdown = _uiToMd.ReplaceEventTargetInMarkdown(currentMarkdown, oldTarget, newTarget);
 
@@ -1011,7 +1027,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             try
             {
-                string currentMarkdown = File.Exists(mdPath) ? File.ReadAllText(mdPath) : string.Empty;
+                string currentMarkdown = GetCurrentMarkdown(mdPath);
 
                 // ★ 親イベントは Markdown 上では "- {parent.Name} →" 形式（例: "- ボタン1押下 →"）
                 string parentEventLabel = (parent.Name ?? string.Empty).Trim();
@@ -1081,7 +1097,7 @@ namespace _2vdm_spec_generator.ViewModel
             string mdPath = SelectedItem.FullPath;
 
             // 画面一覧ファイル（先頭が "# 画面一覧"）でのみ変更する
-            string currentMarkdown = File.Exists(mdPath) ? File.ReadAllText(mdPath) : string.Empty;
+            string currentMarkdown = GetCurrentMarkdown(mdPath);
             var firstLine = currentMarkdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).FirstOrDefault()?.Trim();
             if (!string.Equals(firstLine, "# 画面一覧", StringComparison.Ordinal))
             {
@@ -1227,7 +1243,7 @@ namespace _2vdm_spec_generator.ViewModel
             );
 
             string path = SelectedItem.FullPath;
-            string currentMarkdown = File.ReadAllText(path);
+            string currentMarkdown = GetCurrentMarkdown(path);
             var builder = _uiToMd;
             string newMarkdown;
 
@@ -1325,7 +1341,7 @@ namespace _2vdm_spec_generator.ViewModel
             string target = timeoutData.Item2;
 
             string path = SelectedItem.FullPath;
-            string currentMarkdown = File.ReadAllText(path);
+            string currentMarkdown = GetCurrentMarkdown(path);
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddTimeoutEvent(currentMarkdown, seconds, target);
@@ -1508,7 +1524,7 @@ namespace _2vdm_spec_generator.ViewModel
                 var mdPath = SelectedItem.FullPath;
                 try
                 {
-                    string currentMarkdown = File.Exists(mdPath) ? File.ReadAllText(mdPath) : string.Empty;
+                    string currentMarkdown = GetCurrentMarkdown(mdPath);
                     string newMarkdown = RemoveBranchFromMarkdown(currentMarkdown, el, SelectedBranchIndex.Value);
 
                     File.WriteAllText(mdPath, newMarkdown);
@@ -1548,7 +1564,7 @@ namespace _2vdm_spec_generator.ViewModel
             try
             {
                 // Markdown 編集
-                string currentMarkdown = File.Exists(mdPathFull) ? File.ReadAllText(mdPathFull) : string.Empty;
+                string currentMarkdown = GetCurrentMarkdown(mdPathFull);
                 string newMarkdown = RemoveElementFromMarkdown(currentMarkdown, el);
 
                 File.WriteAllText(mdPathFull, newMarkdown);
