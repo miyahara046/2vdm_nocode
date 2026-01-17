@@ -5,15 +5,17 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Maui.Controls;
 using System;
+using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Text; // 追加: Encoding 等のため
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Collections.Generic;
 using System.Text.RegularExpressions;
-using System.Text; // 追加: Encoding 等のため
+using System.Threading.Tasks;
 
 namespace _2vdm_spec_generator.ViewModel
 {
@@ -110,6 +112,10 @@ namespace _2vdm_spec_generator.ViewModel
 
         public ObservableCollection<FolderItem> FolderItems { get; } = new();
 
+        private readonly Dictionary<string, string> _screenIndex = new(StringComparer.OrdinalIgnoreCase);
+
+        private bool _screenIndexReady;
+
         private readonly string mdFileName = "NewClass.md";
 
         // Markdown正規化の再入防止
@@ -180,19 +186,151 @@ namespace _2vdm_spec_generator.ViewModel
 
         public bool HasCopiedNode => _copiedNode != null;
 
+        private void IndexAddOrUpdate(string key, string mdPath)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(mdPath)) return;
+            _screenIndex[key.Trim()] = mdPath;
+        }
+
+        private void IndexRemove(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return;
+            _screenIndex.Remove(key.Trim());
+        }
+
+        /// <summary>
+        /// mdPath の先頭 30 行から "# " / "## " 見出しを拾い、見出し名でも索引できるようにする。
+        /// </summary>
+        private void IndexFromFileHeading(string mdPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(mdPath) || !File.Exists(mdPath)) return;
+
+                foreach (var line in File.ReadLines(mdPath).Take(30))
+                {
+                    var t = (line ?? "").Trim();
+                    if (t.Length == 0) continue;
+
+                    if (t.StartsWith("## ", StringComparison.Ordinal))
+                    {
+                        var name = t.Substring(3).Trim();
+                        if (!string.IsNullOrWhiteSpace(name)) IndexAddOrUpdate(name, mdPath);
+                        break;
+                    }
+                    if (t.StartsWith("# ", StringComparison.Ordinal))
+                    {
+                        // "# 画面一覧" は画面クラス索引用としては不要なので除外（必要なら残してもよい）
+                        var name = t.Substring(2).Trim();
+                        if (!string.Equals(name, "画面一覧", StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(name))
+                        {
+                            IndexAddOrUpdate(name, mdPath);
+                        }
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // 黙殺（フォールバック探索で救える設計にしておく）
+            }
+        }
+
+
 
         // ===== フォルダ読み込み =====
         private void LoadFolderItems()
         {
             FolderItems.Clear();
+            _screenIndex.Clear();
+            _screenIndexReady = false;
             if (string.IsNullOrWhiteSpace(SelectedFolderPath)) return;
 
             foreach (var dir in Directory.GetDirectories(SelectedFolderPath))
                 AddFolderRecursive(dir, 0);
 
             foreach (var file in Directory.GetFiles(SelectedFolderPath).Where(f => Path.GetExtension(f).ToLower() == ".md"))
-                FolderItems.Add(new FolderItem { Name = Path.GetFileName(file), FullPath = file, Level = 0 });
+            {
+                var item = CreateMarkdownFileItem(file, level: 0);
+                FolderItems.Add(item);
+            }
+
+            _screenIndexReady = true;
         }
+
+        private FolderItem CreateMarkdownFileItem(string filePath, int level)
+        {
+            var item = new FolderItem
+            {
+                Name = Path.GetFileName(filePath),
+                FullPath = filePath,
+                Level = level
+            };
+            IndexAddOrUpdate(Path.GetFileNameWithoutExtension(filePath), filePath);
+
+            IndexFromFileHeading(filePath);
+
+            return item;
+        }
+
+        private void TryAttachMarkdownHeadingAndIndex(FolderItem fileItem)
+        {
+            try
+            {
+                if (fileItem == null || string.IsNullOrWhiteSpace(fileItem.FullPath)) return;
+                if (!File.Exists(fileItem.FullPath)) return;
+                if (!string.Equals(Path.GetExtension(fileItem.FullPath), ".md", StringComparison.OrdinalIgnoreCase)) return;
+
+                // --- 先頭だけ読む（全文は読まない） ---
+                string headingLine = null;
+                foreach (var line in File.ReadLines(fileItem.FullPath).Take(30))
+                {
+                    var t = (line ?? string.Empty).Trim();
+                    if (t.Length == 0) continue;
+
+                    if (t.StartsWith("# ") || t.StartsWith("## "))
+                    {
+                        headingLine = t;
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(headingLine))
+                {
+                    fileItem.MarkdownHeading = headingLine;
+
+                    // "# 画面一覧" 判定
+                    if (headingLine.StartsWith("# "))
+                    {
+                        var title = headingLine.Substring(2).Trim();
+                        fileItem.IsScreenListMarkdown = string.Equals(title, "画面一覧", StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    // "## 画面名" 判定（画面名→パスを索引化）
+                    if (headingLine.StartsWith("## "))
+                    {
+                        var screen = headingLine.Substring(3).Trim();
+                        if (!string.IsNullOrWhiteSpace(screen))
+                        {
+                            fileItem.ScreenName = screen;
+                            _screenIndex[screen] = fileItem.FullPath;
+                        }
+                    }
+                }
+
+                // 追加：ファイル名（拡張子除く）でも引けるようにする
+                var byName = Path.GetFileNameWithoutExtension(fileItem.FullPath);
+                if (!string.IsNullOrWhiteSpace(byName))
+                    _screenIndex[byName] = fileItem.FullPath;
+            }
+            catch
+            {
+                // 索引構築失敗は黙殺（フォールバック探索で救済する）
+            }
+        }
+
+
 
         private string ExtractDiagramTitleFromMarkdown(string markdown, FolderItem fileItem)
         {
@@ -235,12 +373,8 @@ namespace _2vdm_spec_generator.ViewModel
 
             foreach (var file in Directory.GetFiles(path).Where(f => Path.GetExtension(f).ToLower() == ".md"))
             {
-                FolderItems.Add(new FolderItem
-                {
-                    Name = Path.GetFileName(file),
-                    FullPath = file,
-                    Level = level + 1
-                });
+                var item = CreateMarkdownFileItem(file, level: level + 1);
+                FolderItems.Add(item);
             }
 
             foreach (var dir in Directory.GetDirectories(path))
@@ -368,6 +502,9 @@ namespace _2vdm_spec_generator.ViewModel
 
             File.WriteAllText(newPath, "New Class\n");
 
+            IndexAddOrUpdate(Path.GetFileNameWithoutExtension(newPath), newPath);
+            IndexFromFileHeading(newPath);
+           
             LoadFolderItems();
 
             SelectedItem = FolderItems.FirstOrDefault(f => f.FullPath == newPath);
@@ -502,6 +639,12 @@ namespace _2vdm_spec_generator.ViewModel
                         // 画面一覧更新失敗は無視（必要ならログ表示）
                     }
                 }
+
+                // ★索引更新（クラス名＝見出し名が変わった）
+                IndexRemove(oldName);
+                IndexAddOrUpdate(newName, path);
+                // 念のため「今の見出し」を再抽出して登録（##/#+空白などの差異吸収）
+                IndexFromFileHeading(path);
 
                 // 4) ViewModel プロパティを更新して UI を再解析（タイトル・GUI要素更新含む）
                 MarkdownContent = newMarkdown;
@@ -1144,6 +1287,12 @@ namespace _2vdm_spec_generator.ViewModel
                 var newVdm = vdmConv.ConvertToVdm(updatedMarkdown);
                 File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
 
+                var screenFile = FindMdFileForScreenName(oldName);
+                if (!string.IsNullOrWhiteSpace(screenFile))
+                    {
+                    IndexRemove(oldName);
+                    IndexAddOrUpdate(newName, screenFile);
+                    }
                 // positions のキー名も変更（位置維持）
                 _positionStore.RenamePositionEntry(mdPath, oldName, newName);
 
@@ -1942,72 +2091,36 @@ namespace _2vdm_spec_generator.ViewModel
         /// - まずファイル名（拡張子除く）一致を探し、見つからなければファイル内の見出しで検索する。
         /// - 見つかったら LoadMarkdownAndVdm を呼んで開く。
         /// </summary>
-        public async Task OpenFileForScreen(string screenName)
+       public async Task OpenFileForScreen(string screenName)
         {
-            if (string.IsNullOrWhiteSpace(screenName)) return;
-            if (string.IsNullOrWhiteSpace(SelectedFolderPath))
+            if (string.IsNullOrWhiteSpace(screenName))
+                return;
+
+            // まず辞書で即決
+            if (_screenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
             {
-                await Application.Current.MainPage.DisplayAlert("エラー", "フォルダが選択されていません。", "OK");
+                ResolveSelectedItemByPath(hit);
+                LoadMarkdownAndVdm(hit);
                 return;
             }
 
-            try
+            // フォールバック（従来探索）
+            var found = FindMdFileForScreenName(screenName);
+            if (string.IsNullOrWhiteSpace(found))
             {
-                // 1) ファイル名（拡張子なし）で一致するものを探す
-                var mdFiles = Directory.GetFiles(SelectedFolderPath, "*.md", SearchOption.AllDirectories);
-                var byName = mdFiles.FirstOrDefault(f => string.Equals(Path.GetFileNameWithoutExtension(f), screenName, StringComparison.OrdinalIgnoreCase));
-                string found = byName;
-
-                // 2) 見つからなければ、ファイル内の先頭見出しを探す（"# " または "## "）
-                if (found == null)
-                {
-                    foreach (var f in mdFiles)
-                    {
-                        // 最初の数行だけ読む（大きいファイル対策）
-                        var lines = File.ReadLines(f).Take(30);
-                        foreach (var line in lines)
-                        {
-                            var trimmed = line.Trim();
-                            if ((trimmed.StartsWith("# ") || trimmed.StartsWith("## ")) && trimmed.IndexOf(screenName, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                found = f;
-                                break;
-                            }
-                        }
-                        if (found != null) break;
-                    }
-                }
-
-                if (found == null)
-                {
-                    await Application.Current.MainPage.DisplayAlert("見つかりません", $"\"{screenName}\" に対応するファイルが見つかりませんでした。", "OK");
-                    return;
-                }
-
-                // SelectedItem を更新してファイルをロードする（FolderItems を経由しなくても LoadMarkdownAndVdm を呼べばよい）
-                var existing = FolderItems.FirstOrDefault(f => string.Equals(f.FullPath, found, StringComparison.OrdinalIgnoreCase));
-                if (existing != null)
-                {
-                    SelectedItem = existing;
-                }
-                else
-                {
-                    SelectedItem = new FolderItem
-                    {
-                        Name = Path.GetFileName(found),
-                        FullPath = found,
-                        Level = 0
-                    };
-                }
-
-                // LoadMarkdownAndVdm は同期的にファイルを読み込み UI を更新するため直接呼ぶ
-                LoadMarkdownAndVdm(found);
+                await Application.Current.MainPage.DisplayAlert("見つかりません", $"\"{screenName}\" に対応する Markdown ファイルが見つかりません。", "OK");
+                return;
             }
-            catch (Exception ex)
-            {
-                await Application.Current.MainPage.DisplayAlert("エラー", $"ファイル検索中にエラーが発生しました: {ex.Message}", "OK");
-            }
+
+            // 見つかったら辞書を自己修復
+        IndexAddOrUpdate(screenName, found);
+        IndexAddOrUpdate(Path.GetFileNameWithoutExtension(found), found);
+        IndexFromFileHeading(found);
+
+         ResolveSelectedItemByPath(found);
+        LoadMarkdownAndVdm(found);
         }
+
         public async Task CopySelectedNodeAsync()
         {
             var el = SelectedGuiElement;
@@ -2190,7 +2303,12 @@ namespace _2vdm_spec_generator.ViewModel
                 if (!string.IsNullOrWhiteSpace(_copiedNode.ScreenFileContent))
                 {
                     string newFilePath = CreateScreenFileCopy(_copiedNode.ScreenFilePath, _copiedNode.Name, newScreen, _copiedNode.ScreenFileContent);
-                    // 失敗しても画面一覧だけは増えるので黙殺でOK（必要なら通知）
+                     if (!string.IsNullOrWhiteSpace(newFilePath))
+                         {
+                        IndexAddOrUpdate(newScreen, newFilePath);   // 画面名キー
+                        IndexAddOrUpdate(Path.GetFileNameWithoutExtension(newFilePath), newFilePath); // ファイル名キー（保険）
+                        IndexFromFileHeading(newFilePath);          // 先頭見出しキー（## 画面名）も貼る
+                         }
                 }
 
                 // vdm再生成（必要なら）
@@ -2286,12 +2404,18 @@ namespace _2vdm_spec_generator.ViewModel
         {
             if (string.IsNullOrWhiteSpace(screenName) || string.IsNullOrWhiteSpace(SelectedFolderPath))
                 return null;
+            if (_screenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
+                return hit;
 
             var mdFiles = Directory.GetFiles(SelectedFolderPath, "*.md", SearchOption.AllDirectories);
 
             var byName = mdFiles.FirstOrDefault(f =>
                 string.Equals(Path.GetFileNameWithoutExtension(f), screenName, StringComparison.OrdinalIgnoreCase));
-            if (byName != null) return byName;
+            if (byName != null)
+                           {
+                IndexAddOrUpdate(screenName, byName); // ★自己修復
+                                return byName;
+                            }
 
             foreach (var f in mdFiles)
             {
@@ -2302,6 +2426,7 @@ namespace _2vdm_spec_generator.ViewModel
                     if ((t.StartsWith("# ") || t.StartsWith("## ")) &&
                         t.IndexOf(screenName, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
+                        IndexAddOrUpdate(screenName, f);
                         return f;
                     }
                 }
