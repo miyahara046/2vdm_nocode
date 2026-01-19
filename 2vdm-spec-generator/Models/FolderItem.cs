@@ -10,6 +10,12 @@ namespace _2vdm_spec_generator.ViewModel
         public string FullPath { get; set; }
         public int Level { get; set; } = 0;
 
+        public string MarkdownHeading { get; set; }
+
+        public bool IsScreenListMarkdown { get; set; }
+
+        public string ScreenName { get; set; }
+
         private bool _isExpanded = true;
         public bool IsExpanded
         {
