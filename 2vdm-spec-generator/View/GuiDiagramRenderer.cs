@@ -450,9 +450,15 @@ namespace _2vdm_spec_generator.View
 
             if (!string.IsNullOrWhiteSpace(evt.Name))
             {
-                var evtNameNorm = evt.Name.Trim();
-                var b = buttons.FirstOrDefault(btn => !string.IsNullOrWhiteSpace(btn.Name) && evtNameNorm.StartsWith(btn.Name.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (b != null) return b;
+                var evtKey = NormalizeActionKey(evt.Name);
+                               if (!string.IsNullOrEmpty(evtKey))
+                                   {
+                   var b = buttons.FirstOrDefault(btn =>
+                    !string.IsNullOrWhiteSpace(btn.Name) &&
+                    string.Equals(NormalizeActionKey(btn.Name), evtKey, StringComparison.OrdinalIgnoreCase));
+                                        if (b != null) return b;
+                                    }
+                
             }
 
             if (!string.IsNullOrWhiteSpace(evt.Target))
@@ -472,9 +478,14 @@ namespace _2vdm_spec_generator.View
 
             if (!string.IsNullOrWhiteSpace(button.Name))
             {
-                var btnName = button.Name.Trim();
-                var ev = events.FirstOrDefault(evt => !string.IsNullOrWhiteSpace(evt.Name) && string.Equals(evt.Name.Trim(), btnName, StringComparison.OrdinalIgnoreCase));
-                if (ev != null) return ev;
+                var btnKey = NormalizeActionKey(button.Name);
+                                if (!string.IsNullOrEmpty(btnKey))
+                                   {
+                    var ev = events.FirstOrDefault(evt =>
+                    !string.IsNullOrWhiteSpace(evt.Name) &&
+                    string.Equals(NormalizeActionKey(evt.Name), btnKey, StringComparison.OrdinalIgnoreCase));
+                                        if (ev != null) return ev;
+                                    }
             }
 
             if (!string.IsNullOrWhiteSpace(button.Target))
@@ -485,6 +496,25 @@ namespace _2vdm_spec_generator.View
 
             return null;
         }
+
+        private static string NormalizeActionKey(string s)
+        {
+           if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            var t = s.Trim();
+
+            // 先頭の箇条書き記号を除去
+            if (t.StartsWith("- ")) t = t.Substring(2).TrimStart();
+
+            // "→" の左辺のみ
+            var arrow = t.IndexOf('→');
+            if (arrow >= 0) t = t.Substring(0, arrow).Trim();
+
+            // "押下" を除去
+            t = t.Replace("押下", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+
+            return t;
+        }
+
 
         private void ApplyFixedX(GuiElement el)
         {
