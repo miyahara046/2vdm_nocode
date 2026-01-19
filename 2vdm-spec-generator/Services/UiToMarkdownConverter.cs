@@ -1161,29 +1161,66 @@ namespace _2vdm_spec_generator.Services
                 if (insertAt < 0) insertAt = lines.Count;
 
                 // ブロック挿入（ボタン名差し替え + 遷移先を「コピーへ」に上書き）
+                // ブロック挿入（ボタン名差し替え + 遷移先上書き）
+                // ※ここで「分岐行」だけコピー1/2…にする
                 var toInsert = new List<string>();
+
                 foreach (var block in copiedBlocks)
                 {
-                    foreach (var line in block)
+                    if (block == null || block.Count == 0) continue;
+
+                    // ★ 先に「このブロックが分岐を持つか」を確定（親行より後ろにネストがあるか）
+                    bool hasBranchInBlock = block.Skip(1).Any(l => !string.IsNullOrWhiteSpace(l) && (l.StartsWith("  ") || l.StartsWith("\t")));
+
+                    int branchNo = 0;
+
+                    for (int k = 0; k < block.Count; k++)
                     {
-                        // 1) まずボタン名を差し替え（インデントは維持）
+                        var line = block[k];
+
+                        // 1) ボタン名差し替え
                         string replaced = line.Replace(oldButton + "押下", newButton + "押下", StringComparison.Ordinal);
 
-                        // 2) 「→ 〜へ」の遷移系だけ、右側を「コピーへ」に変更
-                        //    - 例: "- ボタン1押下 → 画面Aへ"  -> "- コピー押下 → コピーへ"
-                        //    - 分岐行: "  - 条件 → 画面Kへ"  -> "  - 条件 → コピーへ"
+                        // 2) 「→」行の処理
                         var m = EventArrowRegex.Match(replaced);
                         if (m.Success)
                         {
-                            var right = (m.Groups["right"].Value ?? "").Trim();
-                            
-                                replaced = $"{m.Groups["head"].Value}→{transitionTargetName}へ";
-                            
+                            bool isNested = line.StartsWith("  ") || line.StartsWith("\t");
+
+                            if (!isNested)
+                            {
+                                // === 親イベント行 ===
+                                if (hasBranchInBlock)
+                                {
+                                    // 分岐を持つ親は「右側を空」にする（ここが moni 押下のバグ修正点）
+                                    replaced = $"{m.Groups["head"].Value}→";
+                                }
+                                else
+                                {
+                                    // 分岐を持たない親は従来どおりコピー先へ
+                                    replaced = $"{m.Groups["head"].Value}→{transitionTargetName}へ";
+                                }
+                            }
+                            else
+                            {
+                                // === 分岐行（ネスト） ===
+                                branchNo++;
+                                string n = ToZenkakuDigits(branchNo);
+
+                                // 元のインデントを維持
+                                int leadLen = line.Length - line.TrimStart().Length;
+                                string lead = leadLen > 0 ? line.Substring(0, leadLen) : "  ";
+
+                                replaced = $"{lead}- 条件コピー{n} → 分岐コピー{n}へ";
+                            }
                         }
 
                         toInsert.Add(replaced);
                     }
                 }
+
+
+
 
 
                 lines.InsertRange(insertAt, toInsert);
@@ -1192,6 +1229,19 @@ namespace _2vdm_spec_generator.Services
             lines = NormalizeEmptyLines(lines);
             lines = EnsureButtonBeforeEvent(lines);
             return string.Join(Environment.NewLine, lines);
+        }
+
+        private static string ToZenkakuDigits(int n)
+        {
+            // 1 -> "１", 12 -> "１２"
+            var s = n.ToString();
+            char[] a = s.ToCharArray();
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] >= '0' && a[i] <= '9')
+                    a[i] = (char)('０' + (a[i] - '0'));
+            }
+            return new string(a);
         }
 
         /// <summary>
