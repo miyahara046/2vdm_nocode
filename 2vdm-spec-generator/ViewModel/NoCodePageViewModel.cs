@@ -1766,18 +1766,40 @@ namespace _2vdm_spec_generator.ViewModel
             if (SelectedItem == null || string.IsNullOrWhiteSpace(SelectedItem.FullPath)) return;
 
             // 分岐が選択されている場合は分岐単体の削除フローに入る
-            if (SelectedBranchIndex.HasValue && el.Branches != null && SelectedBranchIndex.Value >= 0 && SelectedBranchIndex.Value < el.Branches.Count)
+            if (SelectedBranchIndex.HasValue && el.Branches != null &&
+                SelectedBranchIndex.Value >= 0 && SelectedBranchIndex.Value < el.Branches.Count)
             {
                 var branch = el.Branches[SelectedBranchIndex.Value];
-                string branchLabel = string.IsNullOrWhiteSpace(branch.Condition) ? branch.Target ?? "(未指定)" : $"{branch.Condition} -> {branch.Target}";
-                bool okBranch = await Shell.Current.DisplayAlert("分岐削除確認", $"この分岐 \"{branchLabel}\" を削除しますか？", "はい", "いいえ");
+                string branchLabel = string.IsNullOrWhiteSpace(branch.Condition)
+                    ? (branch.Target ?? "(未指定)")
+                    : $"{branch.Condition} -> {branch.Target}";
+
+                bool okBranch = await Shell.Current.DisplayAlert(
+                    "分岐削除確認",
+                    $"この分岐 \"{branchLabel}\" を削除しますか？",
+                    "はい",
+                    "いいえ");
+
                 if (!okBranch) return;
 
                 var mdPath = SelectedItem.FullPath;
+
                 try
                 {
                     string currentMarkdown = GetCurrentMarkdown(mdPath);
+
+                    // ★ここで Markdown を編集（分岐削除）
                     string newMarkdown = RemoveBranchFromMarkdown(currentMarkdown, el, SelectedBranchIndex.Value);
+
+                    // ★削除できていない場合を即検出（ここが原因切り分けの最短）
+                    if (string.Equals(newMarkdown, currentMarkdown, StringComparison.Ordinal))
+                    {
+                        await Application.Current.MainPage.DisplayAlert(
+                            "削除できませんでした",
+                            "Markdownの内容が変化しませんでした。RemoveBranchFromMarkdown が対象行を見つけられていない可能性があります。",
+                            "OK");
+                        return;
+                    }
 
                     File.WriteAllText(mdPath, newMarkdown);
 
@@ -1786,8 +1808,8 @@ namespace _2vdm_spec_generator.ViewModel
                     var newVdm = converter.ConvertToVdm(newMarkdown);
                     File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
 
-                    // positions.json の更新（親イベント自体は残るので positions は基本的に変わらないが安全のため再書込）
-                    RemovePositionEntry(mdPath, el.Name);
+                    // ★分岐削除では親イベント自体は残るため、positions.json を消さない
+                    // RemovePositionEntry(mdPath, el.Name);
 
                     // ViewModel のプロパティを更新して UI を再構築
                     MarkdownContent = newMarkdown;
@@ -1800,9 +1822,12 @@ namespace _2vdm_spec_generator.ViewModel
                     SelectedBranchIndex = null;
                     SelectedGuiElement = null;
                 }
-                catch
+                catch (Exception ex)
                 {
-                    await Application.Current.MainPage.DisplayAlert("エラー", "分岐削除に失敗しました。", "OK");
+                    await Application.Current.MainPage.DisplayAlert(
+                        "エラー",
+                        $"分岐削除に失敗しました。\n{ex.Message}",
+                        "OK");
                 }
 
                 return;
@@ -1839,11 +1864,12 @@ namespace _2vdm_spec_generator.ViewModel
                 // 選択解除
                 SelectedGuiElement = null;
             }
-            catch
+            catch (Exception ex)
             {
-                await Application.Current.MainPage.DisplayAlert("エラー", "削除処理に失敗しました。", "OK");
+                await Application.Current.MainPage.DisplayAlert("エラー", $"削除処理に失敗しました。\n{ex.Message}", "OK");
             }
         }
+
 
 
         private string RemoveElementFromMarkdown(string markdown, GuiElement el)
@@ -1983,92 +2009,219 @@ namespace _2vdm_spec_generator.ViewModel
         private string RemoveBranchFromMarkdown(string markdown, GuiElement parentEvent, int branchIndex)
         {
             if (markdown == null) markdown = string.Empty;
-            if (parentEvent == null || parentEvent.Branches == null || branchIndex < 0 || branchIndex >= parentEvent.Branches.Count) return markdown;
+            if (parentEvent == null || parentEvent.Branches == null || branchIndex < 0 || branchIndex >= parentEvent.Branches.Count)
+                return markdown;
 
-            var branch = parentEvent.Branches[branchIndex];
             var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).ToList();
 
-            // 親イベントブロックの開始行を探す（例: "- {button}押下" を含む行）
-            int start = lines.FindIndex(l => l.TrimStart().StartsWith("- ") && l.Contains((parentEvent.Name ?? "").Trim()) && l.Contains("押下"));
+            static bool IsHeading(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                var t = line.TrimStart();
+                return t.StartsWith("#");
+            }
+
+            static bool IsEventListHeading(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                var t = line.Trim();
+                // "### イベント一覧" でも "イベント一覧" でも許容
+                if (t == "イベント一覧") return true;
+                if (t.StartsWith("#"))
+                {
+                    var core = t.TrimStart('#', ' ').Trim();
+                    return core == "イベント一覧";
+                }
+                return false;
+            }
+
+            static bool IsTopLevelBullet(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                // インデント無しの "- " をトップレベルとみなす（ここはあなたのMarkdown前提）
+                if (line.StartsWith(" ") || line.StartsWith("\t") || line.StartsWith("　")) return false;
+                return line.TrimStart().StartsWith("- ");
+            }
+
+            static bool IsIndentedBullet(string line)
+            {
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                // インデント有りの "- " を分岐行とみなす
+                if (!(line.StartsWith(" ") || line.StartsWith("\t") || line.StartsWith("　"))) return false;
+                return line.TrimStart().StartsWith("- ");
+            }
+
+            static void ParseBranchLine(string line, out string cond, out string target)
+            {
+                cond = string.Empty;
+                target = string.Empty;
+                if (string.IsNullOrWhiteSpace(line)) return;
+
+                var t = line.TrimStart();
+                if (t.StartsWith("- ")) t = t.Substring(2).TrimStart();
+
+                var arrow = t.IndexOf('→');
+                if (arrow < 0)
+                {
+                    cond = t.Trim();
+                    return;
+                }
+
+                cond = t.Substring(0, arrow).Trim();
+                target = t.Substring(arrow + 1).Trim();
+            }
+
+            static string Norm(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+                return s.Replace(" ", "")
+                        .Replace("　", "")
+                        .Replace("\t", "")
+                        .Trim();
+            }
+
+            static string NormTarget(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+                return Norm(s).Replace("へ", "");
+            }
+
+            // ========= 重要：イベント一覧セクション範囲を特定 =========
+            int eventHead = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (IsEventListHeading(lines[i]))
+                {
+                    eventHead = i;
+                    break;
+                }
+            }
+            if (eventHead == -1) return markdown;
+
+            // イベント一覧の終端（次の見出しまで）
+            int eventEnd = eventHead + 1;
+            while (eventEnd < lines.Count)
+            {
+                if (IsHeading(lines[eventEnd])) break;
+                eventEnd++;
+            }
+
+            // ========= 親イベント行の開始位置 start をイベント一覧内で探す =========
+            var parentKey = NormalizeActionKey(parentEvent.Name);
+            int start = -1;
+
+            for (int i = eventHead + 1; i < eventEnd; i++)
+            {
+                var line = lines[i];
+                if (!IsTopLevelBullet(line)) continue;
+
+                // 親イベント行は通常 "押下" を含む（ボタン一覧の "- 確定" を誤認しないための保険）
+                // ※タイムアウト等も扱うなら条件を追加すればよい
+                if (line.IndexOf("押下", StringComparison.Ordinal) < 0 && line.IndexOf("タイムアウト", StringComparison.Ordinal) < 0)
+                    continue;
+
+                var key = NormalizeActionKey(line);
+                if (!string.IsNullOrEmpty(parentKey) &&
+                    string.Equals(key, parentKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    start = i;
+                    break;
+                }
+            }
+
             if (start == -1) return markdown;
 
-            // ブロックの終端を探す
+            // ========= 親ブロック終端 j（イベント一覧内で、次のトップレベル箇条書き or 見出しまで） =========
             int j = start + 1;
-            while (j < lines.Count)
+            while (j < eventEnd)
             {
                 if (string.IsNullOrWhiteSpace(lines[j])) { j++; continue; }
-                var t = lines[j].TrimStart();
-                // stop if next top-level item or heading
-                if (t.StartsWith("- ") && !lines[j].StartsWith("  ")) break;
-                if (t.StartsWith("#")) break;
+                if (IsHeading(lines[j])) break;
+                if (IsTopLevelBullet(lines[j])) break;
                 j++;
             }
 
-            // ブロック内で該当する分岐行を探して削除（条件またはターゲットを含む行）
-            int removeIndex = -1;
+            // ========= 分岐行（インデント箇条書き）を列挙 =========
+            var branchLineIndexes = new List<int>();
             for (int k = start + 1; k < j; k++)
             {
-                var trimmed = lines[k].Trim();
-                if (string.IsNullOrWhiteSpace(trimmed)) continue;
-                // 分岐行っぽいインデントを持つ行を対象にする
-                if (lines[k].StartsWith("  -") || lines[k].StartsWith("-") || lines[k].StartsWith("　-"))
-                {
-                    // マッチ条件：Condition または Target が含まれている
-                    var cond = (branch.Condition ?? "").Trim();
-                    var targ = (branch.Target ?? "").Trim();
-                    if ((!string.IsNullOrEmpty(cond) && trimmed.IndexOf(cond, StringComparison.OrdinalIgnoreCase) >= 0) ||
-                        (!string.IsNullOrEmpty(targ) && trimmed.IndexOf(targ, StringComparison.OrdinalIgnoreCase) >= 0))
-                    {
-                        removeIndex = k;
-                        break;
-                    }
-                }
+                if (IsIndentedBullet(lines[k]))
+                    branchLineIndexes.Add(k);
             }
+            if (branchLineIndexes.Count == 0) return markdown;
 
-            // 見つからなければブロック内で "-> Target" によるマッチも試す
-            if (removeIndex == -1 && !string.IsNullOrWhiteSpace(branch.Target))
+            // ========= まず分岐内容で削除対象を探す（indexズレ保険） =========
+            int removeIndex = -1;
+
+            var branch = parentEvent.Branches[branchIndex];
+            var wantCond = Norm(branch.Condition);
+            var wantTarget = Norm(branch.Target);
+            var wantTarget2 = NormTarget(branch.Target);
+
+            foreach (var lineIndex in branchLineIndexes)
             {
-                for (int k = start + 1; k < j; k++)
+                ParseBranchLine(lines[lineIndex], out var cond, out var target);
+                var c = Norm(cond);
+                var t = Norm(target);
+                var t2 = NormTarget(target);
+
+                bool condOk = string.IsNullOrEmpty(wantCond) || string.Equals(c, wantCond, StringComparison.Ordinal);
+                bool targetOk = string.IsNullOrEmpty(wantTarget) ||
+                                string.Equals(t, wantTarget, StringComparison.Ordinal) ||
+                                string.Equals(t2, wantTarget2, StringComparison.Ordinal);
+
+                if (condOk && targetOk)
                 {
-                    var trimmed = lines[k].Trim();
-                    if (trimmed.IndexOf(branch.Target.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        removeIndex = k;
-                        break;
-                    }
+                    removeIndex = lineIndex;
+                    break;
                 }
             }
 
-            if (removeIndex == -1) return markdown;
+            // 見つからない場合のみ index で削除（従来互換）
+            if (removeIndex == -1)
+            {
+                if (branchIndex < 0 || branchIndex >= branchLineIndexes.Count) return markdown;
+                removeIndex = branchLineIndexes[branchIndex];
+            }
 
             lines.RemoveAt(removeIndex);
 
-            // ブロック内に分岐行が残っていない場合は親イベントヘッダも削除
+            // ========= 分岐が残っていないなら親イベント行も削除 =========
             bool anyBranchLeft = false;
             for (int k = start + 1; k < j; k++)
             {
                 if (k >= lines.Count) break;
-                var t = lines[k].TrimStart();
-                if (string.IsNullOrWhiteSpace(t)) continue;
-                if (t.StartsWith("- ") && !lines[k].StartsWith("  ")) { anyBranchLeft = true; break; }
+                if (IsIndentedBullet(lines[k]))
+                {
+                    anyBranchLeft = true;
+                    break;
+                }
             }
 
             if (!anyBranchLeft)
             {
-                // 親行を削除（ブロック全体を除去）
-                // 再計算：親イベント行の現在インデックスを検索（remove により位置がずれている可能性があるため名前で再検索）
-                int parentLine = lines.FindIndex(l => l.TrimStart().StartsWith("- ") && l.Contains((parentEvent.Name ?? "").Trim()) && l.Contains("押下"));
-                if (parentLine >= 0)
-                {
-                    lines.RemoveAt(parentLine);
+                // 親行を削除
+                lines.RemoveAt(start);
 
-                    // その後続く空行もクリーニング
-                    while (parentLine < lines.Count && string.IsNullOrWhiteSpace(lines[parentLine]))
-                        lines.RemoveAt(parentLine);
-                }
+                // 直後の空行を整理
+                while (start < lines.Count && string.IsNullOrWhiteSpace(lines[start]))
+                    lines.RemoveAt(start);
             }
 
             return string.Join(Environment.NewLine, lines);
+        }
+
+
+
+        private static string NormalizeActionKey(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            var t = s.Trim();
+            if (t.StartsWith("- ")) t = t.Substring(2).TrimStart();
+            var arrow = t.IndexOf('→');
+            if (arrow >= 0) t = t.Substring(0, arrow).Trim();
+            t = t.Replace("押下", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+            return t;
         }
 
         partial void OnSelectedGuiElementChanged(GuiElement value)

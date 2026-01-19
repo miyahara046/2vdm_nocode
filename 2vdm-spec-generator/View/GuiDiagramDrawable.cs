@@ -739,17 +739,17 @@ namespace _2vdm_spec_generator.View
             var norm = NormalizeLabel(name);
             if (!string.IsNullOrEmpty(norm) && normPositions.TryGetValue(norm, out pos)) return true;
 
-            foreach (var kv in positions)
-            {
-                var kNorm = NormalizeLabel(kv.Key);
-                if (string.IsNullOrEmpty(kNorm)) continue;
-                if (kNorm.IndexOf(norm, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    norm.IndexOf(kNorm, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    pos = kv.Value;
-                    return true;
-                }
-            }
+            //foreach (var kv in positions)
+            //{
+            //    var kNorm = NormalizeLabel(kv.Key);
+            //    if (string.IsNullOrEmpty(kNorm)) continue;
+            //    if (kNorm.IndexOf(norm, StringComparison.OrdinalIgnoreCase) >= 0 ||
+            //        norm.IndexOf(kNorm, StringComparison.OrdinalIgnoreCase) >= 0)
+            //    {
+            //        pos = kv.Value;
+            //        return true;
+            //    }
+            //}
 
             return false;
         }
