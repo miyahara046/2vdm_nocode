@@ -1415,12 +1415,13 @@ namespace _2vdm_spec_generator.ViewModel
             if (string.IsNullOrWhiteSpace(selectedButton))
             {
                 selectedButton = await Shell.Current.DisplayActionSheet(
-                    "イベントを追加するボタンを選んでください",
+                    "対象ボタンを選んでください",
                     "キャンセル", null,
                     buttonNames
                 );
 
                 if (string.IsNullOrEmpty(selectedButton) || selectedButton == "キャンセル") return;
+                
             }
             if (HasSingleEventForButton(selectedButton))
             {
@@ -1716,7 +1717,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             // タイムアウトは固定フラグ（ユーザーが移動できない）
             foreach (var el in GuiElements.Where(g => g.Type == GuiElementType.Timeout))
-                el.IsFixed = true;
+                el.IsMovable = true;
 
             // 位置保存ファイルがあれば読み込んで反映
             LoadGuiPositionsToElements();

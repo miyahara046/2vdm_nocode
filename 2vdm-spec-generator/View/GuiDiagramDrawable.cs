@@ -49,7 +49,7 @@ namespace _2vdm_spec_generator.View
             float timeoutY = timeoutStartY;
             foreach (var el in Elements.Where(e => e.Type == GuiElementType.Timeout))
             {
-                el.IsFixed = true;
+                el.IsMovable = false;
                 el.X = timeoutStartX;
                 el.Y = timeoutY;
                 timeoutY += NodeHeight + 10f;
@@ -90,13 +90,13 @@ namespace _2vdm_spec_generator.View
                 {
                     evt.X = timeoutEl.X + timeoutEventOffset;
                     evt.Y = timeoutEl.Y;
-                    evt.IsFixed = true;
+                    evt.IsMovable = false;
                 }
             }
 
             foreach (var evt in Elements.Where(e => e.Type == GuiElementType.Event && (e.Branches == null || e.Branches.Count == 0)))
             {
-                if (evt.IsFixed && !IsUnpositioned(evt)) continue;
+                if (!evt.IsMovable && !IsUnpositioned(evt)) continue;
 
                 GuiElement correspondingButton = null;
 
@@ -117,7 +117,7 @@ namespace _2vdm_spec_generator.View
                 {
                     evt.X = midColumnX;
                     evt.Y = correspondingButton.Y;
-                    evt.IsFixed = true;
+                    evt.IsMovable = false;
                 }
             }
 
@@ -173,7 +173,7 @@ namespace _2vdm_spec_generator.View
                             {
                                 op.X = opColumnX;
                                 op.Y = centerY - NodeHeight / 2f;
-                                op.IsFixed = true;
+                                op.IsMovable = false;
                             }
                             else
                             {
@@ -199,7 +199,7 @@ namespace _2vdm_spec_generator.View
                     evt.X = midColumnX;
                     evt.Y = (correspondingButton != null) ? correspondingButton.Y : evt.Y;
                 }
-                evt.IsFixed = true;
+                evt.IsMovable = false;
             }
 
             // --- 重要: ブランチ配置でボタンの Y が変更される可能性があるため、
@@ -227,7 +227,7 @@ namespace _2vdm_spec_generator.View
                     // 常にボタンの現在の Y に合わせる（初回読み込みやノード追加時のズレを防ぐ）
                     evt.X = midColumnX;
                     evt.Y = correspondingButton.Y;
-                    evt.IsFixed = true;
+                    evt.IsMovable = false;
                 }
             }
 
@@ -252,11 +252,11 @@ namespace _2vdm_spec_generator.View
                 if (op == null) continue;
 
                 // ユーザー配置済みは尊重。未配置だけ揃える
-                if (!op.IsFixed && IsUnpositioned(op))
+                if (op.IsMovable && IsUnpositioned(op))
                 {
                     op.X = opColumnX;
                     op.Y = btn.Y;    
-                    op.IsFixed = true;
+                    op.IsMovable = false;
                 }
             }
             int opIndex = 0;

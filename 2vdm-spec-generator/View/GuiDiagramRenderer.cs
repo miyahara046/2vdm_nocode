@@ -425,7 +425,7 @@ namespace _2vdm_spec_generator.View
                 {
                     // イベントは中間列（描画側で再調整されるが Y は追従）
                     evt.Y = source.Y;
-                    evt.IsFixed = true; // 常にイベントをボタンに合わせる設計
+                    evt.IsMovable = true; // 常にイベントをボタンに合わせる設計
                 }
             }
             else if (source.Type == GuiElementType.Event)
@@ -437,7 +437,7 @@ namespace _2vdm_spec_generator.View
                 if (btn != null)
                 {
                     btn.Y = source.Y;
-                    // Button は通常移動可能なので IsFixed は変更しない
+                    // Button は通常移動可能なので IsMovable は変更しない
                 }
             }
         }
@@ -525,7 +525,7 @@ namespace _2vdm_spec_generator.View
                 case GuiElementType.Screen:
                 case GuiElementType.Button:
                 case GuiElementType.Operation:
-                    el.IsFixed = false;
+                    el.IsMovable = false;
                     el.X = LeftColumnX;
                     break;
                 case GuiElementType.Event:
@@ -534,16 +534,16 @@ namespace _2vdm_spec_generator.View
                         var timeoutEl = _drawable.Elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout && !string.IsNullOrWhiteSpace(e.Name) && (string.Equals(e.Name, el.Target, StringComparison.Ordinal) || el.Target.Contains(e.Name) || e.Name.Contains(el.Target)));
                         if (timeoutEl != null)
                         {
-                            el.IsFixed = true;
+                            el.IsMovable = true;
                             el.X = RightColumnX;
                             break;
                         }
                     }
-                    el.IsFixed = false;
+                    el.IsMovable = false;
                     el.X = RightColumnX;
                     break;
                 case GuiElementType.Timeout:
-                    el.IsFixed = true;
+                    el.IsMovable = false;
                     el.X = LeftColumnX;
                     break;
             }
