@@ -22,10 +22,6 @@
             <MenuFlyoutItem Text="フォルダを選択" Command="{Binding SelectFolderCommand}"/>
             <MenuFlyoutItem Text="新規ファイル作成" Command="{Binding CreateNewMdFileCommand}"/>
         </MenuBarItem>
-        <MenuBarItem Text="変換">
-            <MenuFlyoutItem Text="VDM++に変換" Command="{Binding ConvertToVdmCommand}"/>
-            <MenuFlyoutItem Text="保存" Command="{Binding SaveMarkdownCommand}"/>
-        </MenuBarItem>
     </ContentPage.MenuBarItems>
 
     <Grid RowDefinitions="0.15*,0.85*" ColumnDefinitions="1*,3*,2*">
