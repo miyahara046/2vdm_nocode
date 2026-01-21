@@ -54,7 +54,7 @@ namespace _2vdm_spec_generator.ViewModel
 
         // ==== 固定ノード（Timeout 固定） ====
         // 例えば Timeout イベントのように、ユーザーが動かせない固定ノードかどうかのフラグ
-        public bool IsFixed { get; set; } = false;
+        public bool IsMovable { get; set; } = false;
 
         // 分岐（条件分岐）を表す構造
         public class EventBranch
