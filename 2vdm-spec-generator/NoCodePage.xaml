@@ -47,34 +47,54 @@
                             SelectionMode="Single"
                             SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
                 <CollectionView.ItemTemplate>
+                    
                     <DataTemplate x:DataType="vm:FolderItem">
+
                         <HorizontalStackLayout Padding="0,2"
-                                               IsVisible="{Binding IsVisible}"
-                                               Spacing="2"
-                                               BackgroundColor="{Binding ., Converter={StaticResource SelectedToColorConverter}, ConverterParameter={x:Reference Page}}">
+                       Spacing="2"
+                       BackgroundColor="{Binding ., Converter={StaticResource SelectedToColorConverter}, ConverterParameter={x:Reference Page}}">
+
+                            <!-- ★ Level=-1（プロジェクトルート）は表示しない -->
+                            <HorizontalStackLayout.Triggers>
+                                <DataTrigger TargetType="HorizontalStackLayout"
+                     Binding="{Binding Level}"
+                     Value="-1">
+                                    <Setter Property="IsVisible" Value="False" />
+                                </DataTrigger>
+
+                                <!-- ★ 通常の可視制御（IsVisible=false も反映） -->
+                                <DataTrigger TargetType="HorizontalStackLayout"
+                     Binding="{Binding IsVisible}"
+                     Value="False">
+                                    <Setter Property="IsVisible" Value="False" />
+                                </DataTrigger>
+                            </HorizontalStackLayout.Triggers>
+
+                            <!-- クリック -->
                             <HorizontalStackLayout.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type vm:NoCodePageViewModel}}, Path=SelectItemCommand}"
-                                                      CommandParameter="{Binding}" />
+                              CommandParameter="{Binding}" />
                             </HorizontalStackLayout.GestureRecognizers>
 
-                            <!-- フォルダ折りたたみラベル-->
+                            <!-- フォルダ折りたたみラベル -->
                             <Label Text="{Binding IsExpanded, Converter={StaticResource BoolToExpandCollapseConverter}}"
-                                   IsVisible="{Binding IsFolder}"
-                                   FontSize="15"
-                                   VerticalOptions="Center"
-                                   TextColor="Black">
+           IsVisible="{Binding IsFolder}"
+           FontSize="15"
+           VerticalOptions="Center"
+           TextColor="Black">
                                 <Label.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type vm:NoCodePageViewModel}}, Path=ToggleExpandCommand}"
-                                                          CommandParameter="{Binding}" />
+                                  CommandParameter="{Binding}" />
                                 </Label.GestureRecognizers>
                             </Label>
 
-                            <!-- ファイル / フォルダ名-->
+                            <!-- ファイル / フォルダ名 -->
                             <Label Text="{Binding Name}"
-                                   VerticalOptions="Center"
-                                   Padding="{Binding Level, Converter={StaticResource LevelToIndentConverter}}"
-                                   HorizontalOptions="FillAndExpand" />
+           VerticalOptions="Center"
+           Padding="{Binding Level, Converter={StaticResource LevelToIndentConverter}}"
+           HorizontalOptions="FillAndExpand" />
                         </HorizontalStackLayout>
+
                     </DataTemplate>
                 </CollectionView.ItemTemplate>
             </CollectionView>

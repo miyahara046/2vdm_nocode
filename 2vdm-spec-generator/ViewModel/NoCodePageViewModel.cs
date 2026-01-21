@@ -121,6 +121,7 @@ namespace _2vdm_spec_generator.ViewModel
         // Markdown正規化の再入防止
         private bool _isNormalizingMarkdown;
 
+
         // 行頭の箇条書き（*, •, ⦁）を "- " に統一（インデント維持）
         private static readonly Regex BulletNormalizeRegex =
             new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
@@ -139,8 +140,14 @@ namespace _2vdm_spec_generator.ViewModel
             var folder = await picker.PickSingleFolderAsync();
             if (folder != null)
             {
+                // SelectFolderAsync の folder != null ブロック内の末尾付近を調整
                 SelectedFolderPath = folder.Path;
                 LoadFolderItems();
+
+                // ルートを SelectedItem に（FolderItems 側に入っている想定）
+                SelectedItem = FolderItems.FirstOrDefault(f =>
+                    string.Equals(f.FullPath, SelectedFolderPath, StringComparison.OrdinalIgnoreCase));
+
 
                 // 選択したフォルダ自体を SelectedItem に設定（ツリーの root として表示されないケースに備える）
                 var existing = FolderItems.FirstOrDefault(f => string.Equals(f.FullPath, SelectedFolderPath, StringComparison.OrdinalIgnoreCase));
@@ -243,21 +250,30 @@ namespace _2vdm_spec_generator.ViewModel
         private void LoadFolderItems()
         {
             FolderItems.Clear();
-            _screenIndex.Clear();
-            _screenIndexReady = false;
-            if (string.IsNullOrWhiteSpace(SelectedFolderPath)) return;
+            if (string.IsNullOrWhiteSpace(SelectedFolderPath) || !Directory.Exists(SelectedFolderPath)) return;
 
-            foreach (var dir in Directory.GetDirectories(SelectedFolderPath))
-                AddFolderRecursive(dir, 0);
-
-            foreach (var file in Directory.GetFiles(SelectedFolderPath).Where(f => Path.GetExtension(f).ToLower() == ".md"))
+            // ★ ルート（Level=-1）
+            var root = new FolderItem
             {
-                var item = CreateMarkdownFileItem(file, level: 0);
-                FolderItems.Add(item);
-            }
+                Name = Path.GetFileName(SelectedFolderPath),
+                FullPath = SelectedFolderPath,
+                Level = -1,
+                IsExpanded = true, // ルートは開いて良い（直下が見える）
+                IsVisible = true
+            };
+            FolderItems.Add(root);
 
-            _screenIndexReady = true;
+            // ★ 直下フォルダは Level=0（初期は閉じる）
+            foreach (var dir in Directory.GetDirectories(SelectedFolderPath))
+                AddFolderRecursive(dir, level: 0);
+
+            // 直下の .md も表示したいならここで追加（必要なら）
+            foreach (var file in Directory.GetFiles(SelectedFolderPath).Where(f => Path.GetExtension(f).ToLower() == ".md"))
+                FolderItems.Add(CreateMarkdownFileItem(file, level: 0));
+
+            RecomputeFolderTreeVisibility();
         }
+
 
         private FolderItem CreateMarkdownFileItem(string filePath, int level)
         {
@@ -360,6 +376,7 @@ namespace _2vdm_spec_generator.ViewModel
         /// <summary>
         /// 指定フォルダを FolderItems に追加し、そのフォルダ内の .md ファイルを追加してからサブフォルダを再帰的に追加する。
         /// </summary>
+        // 変更：AddFolderRecursive シグネチャ拡張
         private void AddFolderRecursive(string path, int level)
         {
             var folderItem = new FolderItem
@@ -367,19 +384,18 @@ namespace _2vdm_spec_generator.ViewModel
                 Name = Path.GetFileName(path),
                 FullPath = path,
                 Level = level,
-                IsExpanded = true
+                IsExpanded = false // ★ 直下(Level0)も、それ以降も最初は閉じる
             };
             FolderItems.Add(folderItem);
 
             foreach (var file in Directory.GetFiles(path).Where(f => Path.GetExtension(f).ToLower() == ".md"))
-            {
-                var item = CreateMarkdownFileItem(file, level: level + 1);
-                FolderItems.Add(item);
-            }
+                FolderItems.Add(CreateMarkdownFileItem(file, level: level + 1));
 
             foreach (var dir in Directory.GetDirectories(path))
                 AddFolderRecursive(dir, level + 1);
         }
+
+
 
 
         // ===== 折りたたみ =====
@@ -388,18 +404,41 @@ namespace _2vdm_spec_generator.ViewModel
         {
             if (folder == null || !folder.IsFolder) return;
 
-            // クリックして展開/折りたたみしたフォルダを選択状態にする
             SelectedItem = folder;
             IsFolderSelected = false;
 
             folder.IsExpanded = !folder.IsExpanded;
+            RecomputeFolderTreeVisibility();
+        }
+
+        private void RecomputeFolderTreeVisibility()
+        {
+            // 直前に見えた “親” をレベルごとに覚える
+            var visByLevel = new Dictionary<int, bool>();
+            var expByLevel = new Dictionary<int, bool>();
+
+            // ルートの親（Level=-2 相当）は常に見えてて展開済み扱い
+            visByLevel[-2] = true;
+            expByLevel[-2] = true;
 
             foreach (var item in FolderItems)
             {
-                if (item.FullPath.StartsWith(folder.FullPath) && item.Level > folder.Level)
-                    item.IsVisible = folder.IsExpanded;
+                bool pv = visByLevel.TryGetValue(item.Level - 1, out var v) ? v : true;
+                bool pe = expByLevel.TryGetValue(item.Level - 1, out var e) ? e : true;
+
+                item.IsVisible = pv && pe;
+
+                if (item.IsFolder)
+                {
+                    visByLevel[item.Level] = item.IsVisible;
+                    expByLevel[item.Level] = item.IsExpanded;
+                }
             }
         }
+
+
+
+
 
         // ===== ファイル/フォルダ選択 =====
         [RelayCommand]
