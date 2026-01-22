@@ -16,32 +16,10 @@ namespace _2vdm_spec_generator.View
             // フォーカスしておく（Windows での動作を想定）
             SecondsEntry?.Focus();
 
-            // Enter キーで確定／フォーカス移動: Completed を接続
-            try
-            {
-                SecondsEntry.Completed += SecondsEntry_Completed;
-                TargetEntry.Completed += TargetEntry_Completed;
-            }
-            catch
-            {
-                // 無視
-            }
 
             // Windows では Esc を捕まえてキャンセルするためネイティブキーイベントを接続
             SecondsEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(SecondsEntry);
             TargetEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(TargetEntry);
-        }
-
-        private void SecondsEntry_Completed(object sender, EventArgs e)
-        {
-            // Enter でターゲット入力へフォーカス
-            TargetEntry?.Focus();
-        }
-
-        private void TargetEntry_Completed(object sender, EventArgs e)
-        {
-            // 最終入力欄なので確定処理を呼ぶ
-            OnConfirmClicked(this, EventArgs.Empty);
         }
 
 #if WINDOWS

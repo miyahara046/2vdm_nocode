@@ -30,44 +30,9 @@ namespace _2vdm_spec_generator.View
             // Opened イベントで初期化を行う
             this.Opened += ConditionInputPopup_Opened;
 
-            // Enter キーで確定／フォーカス移動
-            try
-            {
-                ConditionEntry.Completed += ConditionEntry_Completed;
-                TargetEntry.Completed += TargetEntry_Completed;
-            }
-            catch { }
 
             ConditionEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(ConditionEntry);
             TargetEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(TargetEntry);
-        }
-
-
-
-        private void ConditionEntry_Completed(object sender, EventArgs e)
-        {
-            // 条件が不要な場合はそのまま確定（Delete などもある）
-            if (!RequireCondition)
-            {
-                OnOkClicked(this, EventArgs.Empty);
-                return;
-            }
-
-            // ターゲット欄が表示されていればフォーカス移動、なければ確定
-            if (TargetEntry.IsVisible)
-            {
-                TargetEntry?.Focus();
-            }
-            else
-            {
-                OnOkClicked(this, EventArgs.Empty);
-            }
-        }
-
-        private void TargetEntry_Completed(object sender, EventArgs e)
-        {
-            // 最終入力欄なので確定処理を呼ぶ
-            OnOkClicked(this, EventArgs.Empty);
         }
 
 #if WINDOWS
