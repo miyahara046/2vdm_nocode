@@ -718,7 +718,7 @@ namespace _2vdm_spec_generator.ViewModel
                 classType = await Shell.Current.DisplayActionSheet(
                     "追加するクラスの種類を選んでください",
                     "キャンセル", null,
-                    "画面一覧クラスの追加", "画面クラスの追加"
+                    "画面管理クラスの追加", "画面クラスの追加"
                 );
 
                 if (string.IsNullOrEmpty(classType) || classType == "キャンセル") return;
@@ -743,7 +743,7 @@ namespace _2vdm_spec_generator.ViewModel
             var builder = _uiToMd;
             string newMarkdown = classType switch
             {
-                "画面一覧クラスの追加" => builder.AddClassHeading(currentMarkdown, " 画面一覧"),
+                "画面管理クラスの追加" => builder.AddClassHeading(currentMarkdown, " 画面一覧"),
                 "画面クラスの追加" => builder.AddClassHeading(currentMarkdown, className),
                 _ => currentMarkdown
             };

@@ -37,7 +37,8 @@
                 <Button Text="イベントの追加" Command="{Binding AddEventCommand}" IsVisible="{Binding IsClassAllButtonVisible}"/>
                 <Button Text="タイムアウトの追加" Command="{Binding AddTimeoutEventCommand}" IsVisible="{Binding IsClassAllButtonVisible}"/>
                 <Button Text="クラス名（画面名）の変更" Command="{Binding RenameClassCommand}" IsVisible="{Binding IsClassAllButtonVisible}"/>
-                <Button Text="削除" Command="{Binding DeleteSelectedGuiElementCommand}"/>
+                <Button Text="削除" Command="{Binding DeleteSelectedGuiElementCommand}" IsVisible="{Binding IsScreenListAddButtonVisible}"/>
+                <Button Text="削除" Command="{Binding DeleteSelectedGuiElementCommand}" IsVisible="{Binding IsClassAllButtonVisible}"/>
             </HorizontalStackLayout>
         </ScrollView>
 
