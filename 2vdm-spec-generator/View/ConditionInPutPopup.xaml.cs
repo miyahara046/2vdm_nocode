@@ -110,14 +110,14 @@ namespace _2vdm_spec_generator.View
                 case TabType.Transition:
                     BtnTransition.BackgroundColor = selectedBg;
                     BtnTransition.TextColor = selectedText;
-                    TargetEntry.Placeholder = "例: 画面Cへ";
-                    HintLabel.Text = "画面遷移の指定です。表示例: 画面Cへ";
+                    TargetEntry.Placeholder = "例: スタート画面";
+                    HintLabel.Text = "画面遷移の指定です。表示例: スタート画面";
                     break;
                 case TabType.Add:
                     BtnAdd.BackgroundColor = selectedBg;
                     BtnAdd.TextColor = selectedText;
                     TargetEntry.Placeholder = "例: 1";
-                    HintLabel.Text = "表示部への追加操作などを指定します。";
+                    HintLabel.Text = "表示部への追加操作を指定します。";
                     break;
                 case TabType.Delete:
                     BtnDelete.BackgroundColor = selectedBg;

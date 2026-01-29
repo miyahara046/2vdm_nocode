@@ -25,7 +25,7 @@
 
                 <!-- タブ風ボタン群 -->
                 <HorizontalStackLayout Spacing="6" HorizontalOptions="Fill">
-                    <Button x:Name="BtnAdd" Text="追加" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
+                    <Button x:Name="BtnAdd" Text="入力" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                     <Button x:Name="BtnTransition" Text="遷移" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                     <Button x:Name="BtnDelete" Text="削除" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                     <Button x:Name="BtnOther" Text="その他" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
@@ -36,7 +36,7 @@
 
                 <Frame CornerRadius="6" BorderColor="{AppThemeBinding Light=#888, Dark=#555}" Padding="4" HasShadow="False" Margin="0">
                     <Entry x:Name="TargetEntry"
-                           Placeholder="例: 画面Cへ / 表示部に1を追加"
+                           Placeholder="例: スタート画面 / 表示部に1を追加"
                            TextColor="{AppThemeBinding Light=#000, Dark=#FFF}"
                            PlaceholderColor="{AppThemeBinding Light=#999, Dark=#AAA}"
                            FontSize="14" />

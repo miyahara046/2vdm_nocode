@@ -127,7 +127,7 @@ namespace _2vdm_spec_generator
                             vm.SelectedBranchIndex = branchIndex;
 
                             // 表示する選択肢を組み立て（ノード種別ごと）
-                            string title2 = branchIndex.HasValue ? "分岐操作" : "ノード操作";
+                            string title2 = branchIndex.HasValue ? "ノード操作" : "ノード操作";
                             string[] options2;
 
                             if (branchIndex.HasValue)
