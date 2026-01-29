@@ -164,8 +164,9 @@ namespace _2vdm_spec_generator.ViewModel
                         Level = 0,
                     };
                 }
+                IsFolderSelected = false;
             }
-            IsFolderSelected = false;
+            
 #else
             await Application.Current.MainPage.DisplayAlert("未対応", "このプラットフォームではフォルダ選択は未対応です。", "OK");
 #endif
@@ -1689,8 +1690,35 @@ namespace _2vdm_spec_generator.ViewModel
         [RelayCommand]
         private async Task GoToStartPageAsync()
         {
+            ResetFolderSelectionState();   // ★追加
             await Shell.Current.GoToAsync("//StartPage");
         }
+
+        private void ResetFolderSelectionState()
+        {
+            SelectedFolderPath = null;
+            SelectedItem = null;
+
+            MarkdownContent = null;
+            VdmContent = null;
+
+            // ボタン表示系：初期状態があるならそれに戻す
+            IsClassAddButtonVisible = false;
+            IsScreenListAddButtonVisible = false;
+            IsClassAllButtonVisible = false;
+
+            // 「フォルダ未選択」扱いに戻すのが自然
+            IsFolderSelected = true;
+
+            DiagramTitle = "Condition Transition Map";
+
+            GuiElements.Clear();
+            SelectedGuiElement = null;
+
+            FolderItems.Clear();
+            _screenIndex.Clear();
+        }
+
 
         partial void OnMarkdownContentChanged(string value)
 

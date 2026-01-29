@@ -126,12 +126,6 @@ namespace _2vdm_spec_generator.View
                     TargetEntry.IsVisible = false;
                     HintLabel.Text = "削除操作を選択しています。OKで削除指定として扱います。";
                     break;
-                case TabType.Other:
-                    BtnOther.BackgroundColor = selectedBg;
-                    BtnOther.TextColor = selectedText;
-                    TargetEntry.Placeholder = "その他の操作内容を入力してください";
-                    HintLabel.Text = "その他の操作を指定します。";
-                    break;
             }
 
             // 条件入力の可視性を再設定
@@ -164,8 +158,6 @@ namespace _2vdm_spec_generator.View
             BtnAdd.TextColor = defaultTextLight;
             BtnDelete.BackgroundColor = defaultBg;
             BtnDelete.TextColor = defaultTextLight;
-            BtnOther.BackgroundColor = defaultBg;
-            BtnOther.TextColor = defaultTextLight;
         }
 
         private void OnTabClicked(object sender, EventArgs e)
@@ -173,7 +165,6 @@ namespace _2vdm_spec_generator.View
             if (sender == BtnTransition) SetSelectedTab(TabType.Transition);
             else if (sender == BtnAdd) SetSelectedTab(TabType.Add);
             else if (sender == BtnDelete) SetSelectedTab(TabType.Delete);
-            else if (sender == BtnOther) SetSelectedTab(TabType.Other);
 
             // 条件入力の可視性を反映
             ConditionEntry.IsVisible = RequireCondition;
@@ -201,7 +192,7 @@ namespace _2vdm_spec_generator.View
             if (_selected == TabType.Delete)
             {
                 // 削除タブの場合は固定のターゲット表現
-                target = "削除";
+                target = "表示部の文字削除";
             }
             else
             {
@@ -281,7 +272,7 @@ namespace _2vdm_spec_generator.View
 
             var t = InitialTarget.Trim();
 
-            if (string.Equals(t, "削除", StringComparison.Ordinal))
+            if (string.Equals(t, "表示部の文字削除", StringComparison.Ordinal))
             {
                 SetSelectedTab(TabType.Delete);
                 return;

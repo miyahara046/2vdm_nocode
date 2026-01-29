@@ -28,7 +28,6 @@
                     <Button x:Name="BtnAdd" Text="入力" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                     <Button x:Name="BtnTransition" Text="遷移" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                     <Button x:Name="BtnDelete" Text="削除" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
-                    <Button x:Name="BtnOther" Text="その他" CornerRadius="6" HorizontalOptions="FillAndExpand" Clicked="OnTabClicked" />
                 </HorizontalStackLayout>
 
                 <!-- 遷移先 / 操作内容 入力 -->
