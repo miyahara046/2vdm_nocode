@@ -29,7 +29,7 @@ namespace _2vdm_spec_generator.View
         private GuiElement _lastLeftClickElement = null;
         private const int DoubleClickThresholdMs = 400;
 
-        private const float SnapSize = 50f;
+        private const float SnapSize = 55f;
         private const float LeftColumnX = 20f;
         private const float RightColumnX = 350f;
 

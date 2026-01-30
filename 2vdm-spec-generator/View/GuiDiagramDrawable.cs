@@ -21,7 +21,7 @@ namespace _2vdm_spec_generator.View
         public const float NodeHeight = 45f;
         private const float TimeoutEllipseWidth = NodeWidth * 0.7f;
 
-        private const float spacing = 80f;
+        private const float spacing = 160f;
         private const float leftColumnX = 40f;
         private const float midColumnX = leftColumnX + NodeWidth + 40f;
         private const float opColumnX = 520f;
