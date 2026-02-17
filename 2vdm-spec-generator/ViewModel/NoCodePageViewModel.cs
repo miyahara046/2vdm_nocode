@@ -164,8 +164,12 @@ namespace _2vdm_spec_generator.ViewModel
                         Level = 0,
                     };
                 }
+                IsClassAddButtonVisible = true;
+                IsScreenListAddButtonVisible = false;
+                IsClassAllButtonVisible = false;
+                IsFolderSelected = false;
             }
-            IsFolderSelected = false;
+            
 #else
             await Application.Current.MainPage.DisplayAlert("未対応", "このプラットフォームではフォルダ選択は未対応です。", "OK");
 #endif
@@ -243,6 +247,26 @@ namespace _2vdm_spec_generator.ViewModel
                 // 黙殺（フォールバック探索で救える設計にしておく）
             }
         }
+
+
+        //フォルダ、md. パス固定の描画テスト用
+        //{
+        //    if (string.IsNullOrWhiteSpace(mdPath) || !File.Exists(mdPath)) return;
+
+        //    // 画面名集合の取得などでフォルダパスが必要になるので、親フォルダを入れる
+        //    var parent1 = Path.GetDirectoryName(mdPath);
+        //    var parent2 = parent1 != null ? Path.GetDirectoryName(parent1) : null;
+        //    //親フォルダならmdPath。その上ならparent1。さらに上ならparent2を引数に入れる
+        //    SelectedFolderPath = Path.GetDirectoryName(parent1);
+
+        //    // ツリーや SelectedItem をそれっぽく整える（なくても描画だけなら動くが、整合性が良い）
+        //    LoadFolderItems();
+        //    ResolveSelectedItemByPath(mdPath);
+
+        //    // Markdown/VDM 読み込み + GuiElements 更新（描画は GuiElements の更新で走る想定）
+        //    LoadMarkdownAndVdm(mdPath);
+        //}
+
 
 
 
@@ -460,7 +484,9 @@ namespace _2vdm_spec_generator.ViewModel
                 VdmContent = string.Empty;
                 GuiElements = new ObservableCollection<GuiElement>();
                 DiagramTitle = Path.GetFileName(item.FullPath) ?? "Condition Transition Map";
-
+                IsClassAddButtonVisible = true;
+                IsScreenListAddButtonVisible = false;
+                IsClassAllButtonVisible = false;
                 // フォルダ選択画面は閉じる想定（SelectFolderAsync と同様の UI 切替）
                 IsFolderSelected = false;
             }
@@ -701,8 +727,11 @@ namespace _2vdm_spec_generator.ViewModel
         [RelayCommand]
         private async Task AddClassHeadingAsync()
         {
-            if (SelectedItem == null || !SelectedItem.IsFile) return;
-
+            if (SelectedItem == null || !SelectedItem.IsFile)
+            {
+                await Application.Current.MainPage.DisplayAlert("エラー",$"ファイルを選択してください。", "OK");
+                return;
+            }
             // 画面一覧ファイルが存在するか確認（SelectedFolderPath または SelectedItem の親フォルダを探索）
             var screenListPath = _screenListService.FindScreenListFilePath(SelectedFolderPath, SelectedItem?.FullPath);
 
@@ -1689,8 +1718,35 @@ namespace _2vdm_spec_generator.ViewModel
         [RelayCommand]
         private async Task GoToStartPageAsync()
         {
+            ResetFolderSelectionState();   // ★追加
             await Shell.Current.GoToAsync("//StartPage");
         }
+
+        private void ResetFolderSelectionState()
+        {
+            SelectedFolderPath = null;
+            SelectedItem = null;
+
+            MarkdownContent = null;
+            VdmContent = null;
+
+            // ボタン表示系：初期状態があるならそれに戻す
+            IsClassAddButtonVisible = false;
+            IsScreenListAddButtonVisible = false;
+            IsClassAllButtonVisible = false;
+
+            // 「フォルダ未選択」扱いに戻すのが自然
+            IsFolderSelected = true;
+
+            DiagramTitle = "Condition Transition Map";
+
+            GuiElements.Clear();
+            SelectedGuiElement = null;
+
+            FolderItems.Clear();
+            _screenIndex.Clear();
+        }
+
 
         partial void OnMarkdownContentChanged(string value)
 
