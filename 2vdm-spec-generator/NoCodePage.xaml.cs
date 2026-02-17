@@ -20,11 +20,17 @@ namespace _2vdm_spec_generator
             InitializeComponent();
             this.BindingContext = new NoCodePageViewModel();
 
+
+
             _diagramRenderer = new GuiDiagramRenderer();
             DiagramContainer.Content = _diagramRenderer;
 
             if (this.BindingContext is NoCodePageViewModel vm)
+
             {
+                   //パス固定描画テスト用のコード
+                   // vm.DebugLoadMdFile(@"C:\Users\taka\Desktop\Test\Screen\BOX数入力画面.md");
+                
                 _diagramRenderer.PositionsChanged = elements =>
                 {
                     MainThread.BeginInvokeOnMainThread(() =>
