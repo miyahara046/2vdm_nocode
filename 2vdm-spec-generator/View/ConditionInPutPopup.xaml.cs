@@ -30,9 +30,6 @@ namespace _2vdm_spec_generator.View
             // Opened イベントで初期化を行う
             this.Opened += ConditionInputPopup_Opened;
 
-
-            ConditionEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(ConditionEntry);
-            TargetEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(TargetEntry);
         }
 
 #if WINDOWS

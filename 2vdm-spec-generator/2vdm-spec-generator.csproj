@@ -2,7 +2,7 @@
 
     <!-- 共通の設定 -->
     <PropertyGroup>
-        <TargetFrameworks>net8.0-windows10.0.19041.0;net8.0-android</TargetFrameworks>
+        <TargetFrameworks>net9.0-windows10.0.19041.0;net9.0-android</TargetFrameworks>
 
         <!-- Windows SDK が 10.0.22621.0 を使える環境ならこちらに更新 -->
         <!-- <TargetPlatformVersion>10.0.22621.0</TargetPlatformVersion> -->
@@ -34,12 +34,12 @@
     </PropertyGroup>
 
     <!-- Windows ターゲット時のみ WinRT 有効化 -->
-    <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.19041.0'">
+    <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0-windows10.0.19041.0'">
         <EnableWinRT>true</EnableWinRT>
     </PropertyGroup>
 
     <!-- Windows のみ CsWinRT 参照 -->
-    <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.19041.0'">
+    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0-windows10.0.19041.0'">
         <PackageReference Include="Microsoft.Windows.CsWinRT" Version="1.3.0" />
     </ItemGroup>
 
@@ -66,7 +66,7 @@
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="$(MauiVersion)" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
         <PackageReference Include="Markdig" Version="0.35.0" />
     </ItemGroup>
 

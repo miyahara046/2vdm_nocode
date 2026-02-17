@@ -2,13 +2,12 @@
 {
     public partial class App : Application
     {
-        public App(IServiceProvider service)
+        public App()
         {
             try
             {
                 InitializeComponent();
-                MainPage = new AppShell(service); // Shellを構築
-                Shell.Current.GoToAsync("//StartPage");
+                MainPage = new AppShell(); // Shellを構築
             }
             catch (Exception ex)
             {

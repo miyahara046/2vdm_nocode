@@ -18,8 +18,6 @@ namespace _2vdm_spec_generator.View
 
 
             // Windows では Esc を捕まえてキャンセルするためネイティブキーイベントを接続
-            SecondsEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(SecondsEntry);
-            TargetEntry.HandlerChanged += (s, e) => AttachWinEscapeHandlerIfNeeded(TargetEntry);
         }
 
 #if WINDOWS
