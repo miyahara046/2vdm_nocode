@@ -11,6 +11,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Linq;
+using System.Runtime.Intrinsics.Arm;
 using System.Text; // 追加: Encoding 等のため
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -26,6 +27,35 @@ namespace _2vdm_spec_generator.ViewModel
         private readonly GuiPositionStore _positionStore = new();
         private readonly ScreenListService _screenListService = new();
         private readonly ProjectManagementService _projectManager = new();
+
+        // ========== バインド可能プロパティ (ObservableProperty により自動でプロパティが生成される) ===========
+        [ObservableProperty] private string selectedFolderPath;
+        [ObservableProperty] private FolderItem selectedItem;
+        [ObservableProperty] private string markdownContent;
+        [ObservableProperty] private string vdmContent;
+        [ObservableProperty] private bool isClassAddButtonVisible;
+        [ObservableProperty] private bool isScreenListAddButtonVisible;
+        [ObservableProperty] private bool isClassAllButtonVisible;
+        [ObservableProperty] private bool isFolderSelected = true;
+        [ObservableProperty] private string diagramTitle = "Condition Transition Map";
+        [ObservableProperty] private ObservableCollection<GuiElement> guiElements = new();
+        [ObservableProperty] private GuiElement selectedGuiElement;
+        
+        
+        private CopiedNode _copiedNode;
+        public ObservableCollection<FolderItem> FolderItems { get; } = new();
+
+        private Dictionary<string, string> ScreenIndex => _projectManager.ScreenIndex;
+
+        private readonly string mdFileName = "NewClass.md";
+
+        // Markdown正規化の再入防止
+        private bool _isNormalizingMarkdown;
+
+        // 行頭の箇条書き（*, •, ⦁）を "- " に統一（インデント維持）
+        private static readonly Regex BulletNormalizeRegex =
+            new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
+
 
         // ===== Markdown 正規化 =====
         // 異なるエディタ由来のMarkdown（BOM/改行/NBSPなど）の揺れを吸収する。
@@ -81,6 +111,14 @@ namespace _2vdm_spec_generator.ViewModel
             return ReadAndNormalizeMarkdown(path);
         }
 
+        // ===== ファイル更新処理 =====
+        private void PersistMarkdownAndVdm(string mdPath, string newMarkdown)
+        {
+            var(md, vdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, newMarkdown, GuiElements);
+            MarkdownContent = md;
+            VdmContent = vdm;
+        }
+
 
         private static string GetFirstNonEmptyLine(string text)
         {
@@ -94,39 +132,6 @@ namespace _2vdm_spec_generator.ViewModel
             }
             return string.Empty;
         }
-        // ========== バインド可能プロパティ (ObservableProperty により自動でプロパティが生成される) ===========
-
-        [ObservableProperty] private string selectedFolderPath;
-        [ObservableProperty] private FolderItem selectedItem;
-        [ObservableProperty] private string markdownContent;
-        [ObservableProperty] private string vdmContent;
-        [ObservableProperty] private bool isClassAddButtonVisible;
-        [ObservableProperty] private bool isScreenListAddButtonVisible;
-        [ObservableProperty] private bool isClassAllButtonVisible;
-        [ObservableProperty] private bool isFolderSelected = true;
-        [ObservableProperty]
-        private string diagramTitle = "Condition Transition Map";
-        [ObservableProperty]
-        private ObservableCollection<GuiElement> guiElements = new();
-        [ObservableProperty]
-        private GuiElement selectedGuiElement;
-        private CopiedNode _copiedNode;
-
-        public ObservableCollection<FolderItem> FolderItems { get; } = new();
-
-        private Dictionary<string, string> _screenIndex = new(StringComparer.OrdinalIgnoreCase);
-
-        private bool _screenIndexReady;
-
-        private readonly string mdFileName = "NewClass.md";
-
-        // Markdown正規化の再入防止
-        private bool _isNormalizingMarkdown;
-
-
-        // 行頭の箇条書き（*, •, ⦁）を "- " に統一（インデント維持）
-        private static readonly Regex BulletNormalizeRegex =
-            new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
 
 
         // ===== フォルダ選択 =====
@@ -201,13 +206,13 @@ namespace _2vdm_spec_generator.ViewModel
         private void IndexAddOrUpdate(string key, string mdPath)
         {
             if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(mdPath)) return;
-            _screenIndex[key.Trim()] = mdPath;
+            ScreenIndex[key.Trim()] = mdPath;
         }
 
         private void IndexRemove(string key)
         {
             if (string.IsNullOrWhiteSpace(key)) return;
-            _screenIndex.Remove(key.Trim());
+            ScreenIndex.Remove(key.Trim());
         }
 
         /// <summary>
@@ -276,11 +281,10 @@ namespace _2vdm_spec_generator.ViewModel
         {
             FolderItems.Clear();
 
-            var result = _projectManager.BuildFolderItems(selectedFolderPath);
+            var result = _projectManager.BuildFolderItems(SelectedFolderPath);
             foreach (var it in result.Items)
                 FolderItems.Add(it);
 
-            _screenIndex = result.ScreenIndex;
             RecomputeFolderTreeVisibility();
         }
 
@@ -293,9 +297,6 @@ namespace _2vdm_spec_generator.ViewModel
                 FullPath = filePath,
                 Level = level
             };
-            IndexAddOrUpdate(Path.GetFileNameWithoutExtension(filePath), filePath);
-
-            IndexFromFileHeading(filePath);
 
             return item;
         }
@@ -340,7 +341,7 @@ namespace _2vdm_spec_generator.ViewModel
                         if (!string.IsNullOrWhiteSpace(screen))
                         {
                             fileItem.ScreenName = screen;
-                            _screenIndex[screen] = fileItem.FullPath;
+                            ScreenIndex[screen] = fileItem.FullPath;
                         }
                     }
                 }
@@ -348,7 +349,7 @@ namespace _2vdm_spec_generator.ViewModel
                 // 追加：ファイル名（拡張子除く）でも引けるようにする
                 var byName = Path.GetFileNameWithoutExtension(fileItem.FullPath);
                 if (!string.IsNullOrWhiteSpace(byName))
-                    _screenIndex[byName] = fileItem.FullPath;
+                    ScreenIndex[byName] = fileItem.FullPath;
             }
             catch
             {
@@ -525,7 +526,7 @@ namespace _2vdm_spec_generator.ViewModel
                 return;
             }
 
-            File.WriteAllText(newPath, "New Class\n");
+            newPath = _projectManager.CreateNewMarkdownFile(targetDir, fileName, "New Class\n");
 
             IndexAddOrUpdate(Path.GetFileNameWithoutExtension(newPath), newPath);
             IndexFromFileHeading(newPath);
@@ -621,11 +622,8 @@ namespace _2vdm_spec_generator.ViewModel
                 var newMarkdown = string.Join(Environment.NewLine, lines);
 
                 // 2) ファイル書き込みと VDM++ 再生成
-                File.WriteAllText(path, newMarkdown, Encoding.UTF8);
-
-                var converter = new MarkdownToVdmConverter();
-                string newVdm = converter.ConvertToVdm(newMarkdown);
-                File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), newVdm, Encoding.UTF8);
+                var(normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(path, newMarkdown,GuiElements);
+                newMarkdown = normalizedMd;
 
                 // 3) 画面一覧ファイル（SelectedFolderPath 配下）にあれば "- {oldName}" を "- {newName}" に置換
                 var screenListPath = _screenListService.FindScreenListFilePath(SelectedFolderPath, SelectedItem?.FullPath);
@@ -650,11 +648,8 @@ namespace _2vdm_spec_generator.ViewModel
                         }
                         if (updated)
                         {
-                            File.WriteAllLines(screenListPath, screenLines, Encoding.UTF8);
-                            // screen list の VDM++ も再生成
                             var screenMd = string.Join(Environment.NewLine, screenLines);
-                            var screenVdm = converter.ConvertToVdm(screenMd);
-                            File.WriteAllText(Path.ChangeExtension(screenListPath, ".vdmpp"), screenVdm, Encoding.UTF8);
+                            _projectManager.UpdateMarkdownAndVdm(screenListPath, screenMd,GuiElements);
                             // ツリー更新
                             LoadFolderItems();
                         }
@@ -737,14 +732,7 @@ namespace _2vdm_spec_generator.ViewModel
                 _ => currentMarkdown
             };
 
-            File.WriteAllText(path, newMarkdown, Encoding.UTF8);
-
-            var converter = new MarkdownToVdmConverter();
-            string vdmContent = converter.ConvertToVdm(newMarkdown);
-            File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), vdmContent, Encoding.UTF8);
-
-            MarkdownContent = newMarkdown;
-            VdmContent = vdmContent;
+            PersistMarkdownAndVdm(path, newMarkdown);
 
             LoadMarkdownAndVdm(path);
 
@@ -770,11 +758,7 @@ namespace _2vdm_spec_generator.ViewModel
         {
             if (SelectedItem == null || !SelectedItem.IsFile) return;
 
-            File.WriteAllText(SelectedItem.FullPath, MarkdownContent);
-
-            var converter = new MarkdownToVdmConverter();
-            VdmContent = converter.ConvertToVdm(MarkdownContent);
-            File.WriteAllText(Path.ChangeExtension(SelectedItem.FullPath, ".vdmpp"), VdmContent);
+            PersistMarkdownAndVdm(SelectedItem.FullPath, MarkdownContent);
         }
 
         // ===== VDM++ 変換（保存なし）=====
@@ -784,9 +768,7 @@ namespace _2vdm_spec_generator.ViewModel
             if (SelectedItem == null || !SelectedItem.IsFile) return;
 
             string mdPath = SelectedItem.FullPath;
-            var converter = new MarkdownToVdmConverter();
-            VdmContent = converter.ConvertToVdm(GetCurrentMarkdown(mdPath));
-            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), VdmContent);
+            VdmContent = _projectManager.UpdateVdmOnly(mdPath, GetCurrentMarkdown(mdPath));
         }
 
         [RelayCommand]
@@ -804,14 +786,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddScreenList(currentMarkdown, screenName.Trim());
-            File.WriteAllText(path, newMarkdown);
-
-            var converter = new MarkdownToVdmConverter();
-            string vdmContent = converter.ConvertToVdm(newMarkdown);
-            File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), vdmContent);
-
-            MarkdownContent = newMarkdown;
-            VdmContent = vdmContent;
+            PersistMarkdownAndVdm(path, newMarkdown);
         }
 
         [RelayCommand]
@@ -839,14 +814,8 @@ namespace _2vdm_spec_generator.ViewModel
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddButton(currentMarkdown, normalized);
-            File.WriteAllText(path, newMarkdown);
-
-            var converter = new MarkdownToVdmConverter();
-            string vdmContent = converter.ConvertToVdm(newMarkdown);
-            File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), vdmContent);
-
-            MarkdownContent = newMarkdown;
-            VdmContent = vdmContent;
+            
+            PersistMarkdownAndVdm(path, newMarkdown);
 
             // 再読込して GuiElements を更新（AddButton でマークダウンが変わったので反映）
             LoadMarkdownAndVdm(path);
@@ -945,15 +914,11 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                File.WriteAllText(mdPath, updatedMarkdown);
-
-                // VDM++ 再生成
-                var vdmConv = new MarkdownToVdmConverter();
-                string newVdm = vdmConv.ConvertToVdm(updatedMarkdown);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
+                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                updatedMarkdown = normalizedMd;
 
                 // positions.json の名前キーもリネーム（位置保持）
-                _positionStore.RenamePositionEntry(mdPath, oldName, newName);
+                _projectManager.RenamePosition(mdPath, oldName, newName);
 
                 // 反映
                 MarkdownContent = updatedMarkdown;
@@ -1106,15 +1071,11 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                File.WriteAllText(mdPath, updatedMarkdown);
-
-                // VDM++ 再生成
-                var vdmConv = new MarkdownToVdmConverter();
-                var newVdm = vdmConv.ConvertToVdm(updatedMarkdown);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
+                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                updatedMarkdown = normalizedMd;
 
                 // positions.json の名前キーをリネーム（イベントノードの表示名が変わるため）
-                _positionStore.RenamePositionEntry(mdPath, oldTarget, newTarget);
+                _projectManager.RenamePosition(mdPath, oldTarget, newTarget);
 
                 // 反映
                 MarkdownContent = updatedMarkdown;
@@ -1226,12 +1187,8 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                File.WriteAllText(mdPath, updatedMarkdown);
-
-                // VDM++ 再生成
-                var vdmConv = new MarkdownToVdmConverter();
-                var newVdm = vdmConv.ConvertToVdm(updatedMarkdown);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
+                var(normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                updatedMarkdown = normalizedMd;
 
                 // 反映して再解析
                 MarkdownContent = updatedMarkdown;
@@ -1308,12 +1265,8 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                File.WriteAllText(mdPath, updatedMarkdown);
-
-                // 画面一覧は VDM 生成対象ではないかもしれないが、念のため更新しておく（必要なければ削ってOK）
-                var vdmConv = new MarkdownToVdmConverter();
-                var newVdm = vdmConv.ConvertToVdm(updatedMarkdown);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
+                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown, GuiElements);
+                updatedMarkdown = normalizedMd;
 
                 var screenFile = FindMdFileForScreenName(oldName);
                 if (!string.IsNullOrWhiteSpace(screenFile))
@@ -1322,7 +1275,7 @@ namespace _2vdm_spec_generator.ViewModel
                     IndexAddOrUpdate(newName, screenFile);
                     }
                 // positions のキー名も変更（位置維持）
-                _positionStore.RenamePositionEntry(mdPath, oldName, newName);
+                _projectManager.RenamePosition(mdPath, oldName, newName);
 
                 MarkdownContent = updatedMarkdown;
                 VdmContent = newVdm;
@@ -1499,13 +1452,7 @@ namespace _2vdm_spec_generator.ViewModel
             }
 
             // --- Markdown と VDM++ 出力更新 ---
-            File.WriteAllText(path, newMarkdown);
-            var converter = new MarkdownToVdmConverter();
-            string vdmContent = converter.ConvertToVdm(newMarkdown);
-            File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), vdmContent);
-
-            MarkdownContent = newMarkdown;
-            VdmContent = vdmContent;
+            PersistMarkdownAndVdm(path, newMarkdown);
 
             // 再読込して GuiElements を更新（マークダウン → GUI 表示の整合性を取る）
             LoadMarkdownAndVdm(path);
@@ -1626,13 +1573,8 @@ namespace _2vdm_spec_generator.ViewModel
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddTimeoutEvent(currentMarkdown, seconds, target);
-            File.WriteAllText(path, newMarkdown);
-
-            var converter = new MarkdownToVdmConverter();
-            string vdmContent = converter.ConvertToVdm(newMarkdown);
-            File.WriteAllText(Path.ChangeExtension(path, ".vdmpp"), vdmContent);
-
-            MarkdownContent = newMarkdown;
+            var (normalizedMd, vdmContent) = _projectManager.UpdateMarkdownAndVdm(path, newMarkdown, GuiElements);
+            MarkdownContent = normalizedMd;
             VdmContent = vdmContent;
         }
 
@@ -1641,25 +1583,9 @@ namespace _2vdm_spec_generator.ViewModel
         {
             if (SelectedItem == null || string.IsNullOrWhiteSpace(SelectedItem.FullPath)) return;
 
-            string posPath = Path.ChangeExtension(SelectedItem.FullPath, ".positions.json");
-
-            if (File.Exists(posPath)) return; // 既にある場合は何もしない
-
-            // 現在の GUI 要素を元に JSON を作成
-            var list = GuiElements.Select(e => new GuiElementPosition
-            {
-                Name = e.Name,
-                X = e.X,
-                Y = e.Y
-            }).ToList();
-
-            if (list.Count == 0) return; // 要素がなければ作らない
-
             try
             {
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                string json = JsonSerializer.Serialize(list, options);
-                File.WriteAllText(posPath, json);
+                _projectManager.EnsurePositionsJsonExists(SelectedItem.FullPath, GuiElements);
             }
             catch
             {
@@ -1704,7 +1630,7 @@ namespace _2vdm_spec_generator.ViewModel
             SelectedGuiElement = null;
 
             FolderItems.Clear();
-            _screenIndex.Clear();
+            ScreenIndex.Clear();
         }
 
 
@@ -1757,19 +1683,7 @@ namespace _2vdm_spec_generator.ViewModel
             try
             {
                 if (SelectedItem == null || string.IsNullOrWhiteSpace(SelectedItem.FullPath)) return;
-
-                var list = elements.Select(e => new GuiElementPosition
-                {
-                    Name = e.Name,
-                    X = e.X,
-                    Y = e.Y
-                }).ToList();
-
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                var json = JsonSerializer.Serialize(list, options);
-
-                var posPath = Path.ChangeExtension(SelectedItem.FullPath, ".positions.json");
-                File.WriteAllText(posPath, json);
+                _projectManager.SavePositions(SelectedItem.FullPath,elements);
             }
             catch
             {
@@ -1790,22 +1704,7 @@ namespace _2vdm_spec_generator.ViewModel
                 if (!File.Exists(posPath))
                     return;
 
-                var json = File.ReadAllText(posPath);
-                var list = JsonSerializer.Deserialize<List<GuiElementPosition>>(json);
-
-                if (list == null || list.Count == 0)
-                    return;
-
-                // GUI 要素に反映（名前でマッチさせる）
-                foreach (var pos in list)
-                {
-                    var el = GuiElements.FirstOrDefault(e => e.Name == pos.Name);
-                    if (el != null)
-                    {
-                        el.X = pos.X;
-                        el.Y = pos.Y;
-                    }
-                }
+                _projectManager.ApplyPositions(SelectedItem.FullPath, GuiElements);
             }
             catch
             {
@@ -1813,6 +1712,7 @@ namespace _2vdm_spec_generator.ViewModel
                 return;
             }
         }
+        
 
         [RelayCommand]
         public async Task DeleteSelectedGuiElementAsync()
@@ -1856,20 +1756,8 @@ namespace _2vdm_spec_generator.ViewModel
                             "OK");
                         return;
                     }
-
-                    File.WriteAllText(mdPath, newMarkdown);
-
-                    // VDM++ 再生成
-                    var converter = new MarkdownToVdmConverter();
-                    var newVdm = converter.ConvertToVdm(newMarkdown);
-                    File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm);
-
-                    // ★分岐削除では親イベント自体は残るため、positions.json を消さない
-                    // RemovePositionEntry(mdPath, el.Name);
-
-                    // ViewModel のプロパティを更新して UI を再構築
-                    MarkdownContent = newMarkdown;
-                    VdmContent = newVdm;
+                    
+                    PersistMarkdownAndVdm(mdPath, newMarkdown); 
 
                     // 再解析して GuiElements を更新
                     LoadMarkdownAndVdm(mdPath);
@@ -1900,19 +1788,7 @@ namespace _2vdm_spec_generator.ViewModel
                 string currentMarkdown = GetCurrentMarkdown(mdPathFull);
                 string newMarkdown = RemoveElementFromMarkdown(currentMarkdown, el);
 
-                File.WriteAllText(mdPathFull, newMarkdown);
-
-                // VDM++ 再生成
-                var converter = new MarkdownToVdmConverter();
-                var newVdm = converter.ConvertToVdm(newMarkdown);
-                File.WriteAllText(Path.ChangeExtension(mdPathFull, ".vdmpp"), newVdm);
-
-                // positions.json から削除（存在する場合）
-                RemovePositionEntry(mdPathFull, el.Name);
-
-                // ViewModel のプロパティを更新して UI を再構築
-                MarkdownContent = newMarkdown;
-                VdmContent = newVdm;
+                PersistMarkdownAndVdm(mdPathFull, newMarkdown);
 
                 // 再解析して GuiElements を更新
                 LoadMarkdownAndVdm(mdPathFull);
@@ -2000,33 +1876,6 @@ namespace _2vdm_spec_generator.ViewModel
                 }
             }
 
-            if (el.Type == GuiElementType.Timeout)
-            {
-                for (int i = lines.Count - 1; i >= 0; i--)
-                {
-                    var t = lines[i].Trim();
-                    if ((t.StartsWith("- ") || t.StartsWith("* ")) && t.Contains("秒でタイムアウト"))
-                    {
-                        lines.RemoveAt(i);
-                        changed = true;
-                    }
-                }
-
-                // 2) イベント一覧の「- タイムアウト → ...」行を削除（遷移先なし版も削除）
-                for (int i = lines.Count - 1; i >= 0; i--)
-                {
-                    var t = lines[i].TrimStart();
-                    if (t.StartsWith("- タイムアウト", StringComparison.Ordinal) ||
-                        t.StartsWith("* タイムアウト", StringComparison.Ordinal))
-                    {
-                        // 例: "- タイムアウト → 画面Aへ" / "- タイムアウト"
-                        // タイムアウト以外（「タイムアウトを含む別文」）を誤消ししたくない場合は StartsWith のままでOK
-                        lines.RemoveAt(i);
-                        changed = true;
-                    }
-                }
-            }
-
             // 4) 画面一覧（"- {name}"）などで残る可能性がある重複も上で削除済みなのでそのまま
             if (!changed) return markdown;
 
@@ -2039,22 +1888,7 @@ namespace _2vdm_spec_generator.ViewModel
             {
                 var posPath = Path.ChangeExtension(mdPath, ".positions.json");
                 if (!File.Exists(posPath)) return;
-
-                var json = File.ReadAllText(posPath);
-                var list = JsonSerializer.Deserialize<List<GuiElementPosition>>(json);
-                if (list == null) return;
-
-                var newList = list.Where(p => !string.Equals(p.Name?.Trim(), name, StringComparison.Ordinal)).ToList();
-
-                if (newList.Count == 0)
-                {
-                    try { File.Delete(posPath); } catch { }
-                }
-                else
-                {
-                    var options = new JsonSerializerOptions { WriteIndented = true };
-                    File.WriteAllText(posPath, JsonSerializer.Serialize(newList, options));
-                }
+                _projectManager.RemovePosition(mdPath, name);
             }
             catch
             {
@@ -2306,7 +2140,7 @@ namespace _2vdm_spec_generator.ViewModel
                 return;
 
             // まず辞書で即決
-            if (_screenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
+            if (ScreenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
             {
                 ResolveSelectedItemByPath(hit);
                 LoadMarkdownAndVdm(hit);
@@ -2455,18 +2289,11 @@ namespace _2vdm_spec_generator.ViewModel
                 string updated = _uiToMd.PasteButtonWithEventsIntoMarkdown(md,_copiedNode.Name ,newName, _copiedNode.EventBlocks, transitionTargetName);
 
 
-                File.WriteAllText(mdPath, updated, Encoding.UTF8);
-
-                // vdm再生成
-                var vdmConv = new MarkdownToVdmConverter();
-                var newVdm = vdmConv.ConvertToVdm(updated);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm, Encoding.UTF8);
+                PersistMarkdownAndVdm(mdPath, updated);
 
                 // 位置：新ボタンにオフセットで追加
-                _positionStore.AddOrUpdatePositionEntry(mdPath, newName, _copiedNode.X + 30, _copiedNode.Y + 30);
+                _projectManager.AddOrUpdatePosition(mdPath, newName, _copiedNode.X + 30, _copiedNode.Y + 30);
 
-                MarkdownContent = updated;
-                VdmContent = newVdm;
                 LoadMarkdownAndVdm(mdPath);
 
                 SelectedGuiElement = GuiElements.FirstOrDefault(g => g.Type == GuiElementType.Button
@@ -2506,7 +2333,7 @@ namespace _2vdm_spec_generator.ViewModel
                 }
 
                 string updated = _uiToMd.PasteScreenIntoScreenListMarkdown(md, _copiedNode.Name, newScreen);
-                File.WriteAllText(mdPath, updated, Encoding.UTF8);
+
 
                 // 画面ファイルも複製（元が見つかって内容がある場合）
                 if (!string.IsNullOrWhiteSpace(_copiedNode.ScreenFileContent))
@@ -2520,15 +2347,13 @@ namespace _2vdm_spec_generator.ViewModel
                          }
                 }
 
-                // vdm再生成（必要なら）
-                var vdmConv = new MarkdownToVdmConverter();
-                var newVdm = vdmConv.ConvertToVdm(updated);
-                File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), newVdm, Encoding.UTF8);
 
-                _positionStore.AddOrUpdatePositionEntry(mdPath, newScreen, _copiedNode.X + 30, _copiedNode.Y + 30);
 
-                MarkdownContent = updated;
-                VdmContent = newVdm;
+                PersistMarkdownAndVdm(mdPath, updated);
+
+                _projectManager.AddOrUpdatePosition(mdPath, newScreen, _copiedNode.X + 30, _copiedNode.Y + 30);
+
+
                 LoadMarkdownAndVdm(mdPath);
 
                 SelectedGuiElement = GuiElements.FirstOrDefault(g => g.Type == GuiElementType.Screen
@@ -2604,16 +2429,11 @@ namespace _2vdm_spec_generator.ViewModel
             return false;
         }
 
-
-
-
-
-
         private string FindMdFileForScreenName(string screenName)
         {
             if (string.IsNullOrWhiteSpace(screenName) || string.IsNullOrWhiteSpace(SelectedFolderPath))
                 return null;
-            if (_screenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
+            if (ScreenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
                 return hit;
 
             var mdFiles = Directory.GetFiles(SelectedFolderPath, "*.md", SearchOption.AllDirectories);
@@ -2623,7 +2443,7 @@ namespace _2vdm_spec_generator.ViewModel
             if (byName != null)
                            {
                 IndexAddOrUpdate(screenName, byName); // ★自己修復
-                                return byName;
+                return byName;
                             }
 
             foreach (var f in mdFiles)
@@ -2667,15 +2487,14 @@ namespace _2vdm_spec_generator.ViewModel
                     }
                 }
 
-                File.WriteAllText(newPath, string.Join(Environment.NewLine, lines), Encoding.UTF8);
-                return newPath;
+                var contentText = string.Join(Environment.NewLine, lines);
+                return _projectManager.CreateNewMarkdownFile(dir, newScreen + ".md", contentText);
             }
             catch
             {
                 return null;
             }
         }
-
 
 
 

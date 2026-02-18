@@ -1,12 +1,13 @@
-﻿using System;
+﻿using _2vdm_spec_generator.ViewModel;
+using Markdig;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-
-using _2vdm_spec_generator.ViewModel;
+using System.Xml.Linq;
 
 namespace _2vdm_spec_generator.Services
 {
@@ -17,10 +18,16 @@ namespace _2vdm_spec_generator.Services
     internal class ProjectManagementService
     {
         private readonly GuiPositionStore _positionStore = new();
+
         private readonly ScreenListService _screenListService = new();
 
         private static readonly Regex BulletNormalizeRegex =
             new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
+        public string SelectedFolderPath { get; private set; } = string.Empty;
+        public string SelectedFilePath { get; private set; } = string.Empty;
+        public string MarkdownText { get; private set; } = string.Empty;
+        public Dictionary<string, string> ScreenIndex { get; private set; }
+            = new (StringComparer.OrdinalIgnoreCase);
 
         public sealed record FolderLoadResult(
             ObservableCollection<FolderItem> Items,
@@ -75,14 +82,18 @@ namespace _2vdm_spec_generator.Services
             return string.Empty;
         }
 
-        // 4.3.2 相当：フォルダ探索（FolderItems と ScreenIndex を生成）
+        // フォルダ探索（FolderItems と ScreenIndex を生成）
         public FolderLoadResult BuildFolderItems(string selectedFolderPath)
         {
             var folderItems = new ObservableCollection<FolderItem>();
             var screenIndex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+            SelectedFolderPath = selectedFolderPath ?? string.Empty;
             if (string.IsNullOrWhiteSpace(selectedFolderPath) || !Directory.Exists(selectedFolderPath))
+            {
+                ScreenIndex = screenIndex;
                 return new FolderLoadResult(folderItems, screenIndex);
+            }
 
             var root = new FolderItem
             {
@@ -101,6 +112,7 @@ namespace _2vdm_spec_generator.Services
                      .Where(f => string.Equals(Path.GetExtension(f), ".md", StringComparison.OrdinalIgnoreCase)))
                 folderItems.Add(CreateMarkdownFileItem(screenIndex, file, level: 0));
 
+            ScreenIndex = screenIndex;
             return new FolderLoadResult(folderItems, screenIndex);
         }
 
@@ -171,10 +183,16 @@ namespace _2vdm_spec_generator.Services
             catch { }
         }
 
-        // 4.3.3 相当：ファイル読込（正規化→VDM→UI要素→positions反映→表示フラグ）
+        // ファイル読込（正規化→VDM→UI要素→positions反映→表示フラグ）
         public FileLoadResult LoadFile(string selectedFolderPath, string mdPath, FolderItem selectedItemOrNull)
         {
+            if (!string.IsNullOrWhiteSpace(selectedFolderPath))
+                SelectedFolderPath = selectedFolderPath;
+
+            SelectedFilePath = mdPath ?? string.Empty;
+
             var markdown = ReadAndNormalizeMarkdown(mdPath);
+            MarkdownText = markdown;
             var vdm = new MarkdownToVdmConverter().ConvertToVdm(markdown);
 
             bool isClassAdd, isScreenListAdd, isClassAll;
@@ -182,21 +200,28 @@ namespace _2vdm_spec_generator.Services
 
             if (firstLine.TrimStart().StartsWith("##", StringComparison.OrdinalIgnoreCase))
             {
-                isClassAdd = false; isScreenListAdd = false; isClassAll = true;
+                isClassAdd = false; 
+                isScreenListAdd = false; 
+                isClassAll = true;
             }
             else if (firstLine.StartsWith("# 画面一覧", StringComparison.OrdinalIgnoreCase))
             {
-                isClassAdd = false; isScreenListAdd = true; isClassAll = false;
+                isClassAdd = false; 
+                isScreenListAdd = true; 
+                isClassAll = false;
             }
             else
             {
-                isClassAdd = true; isScreenListAdd = false; isClassAll = false;
+                isClassAdd = true; 
+                isScreenListAdd = false; 
+                isClassAll = false;
             }
 
             var screenNamesForRenderer = _screenListService.GetScreenNames(selectedFolderPath);
 
             var elements = new MarkdownToUiConverter().Convert(markdown).ToList();
             _positionStore.ApplyPositions(mdPath, elements);
+            _positionStore.EnsureExists(mdPath, elements);
 
             var title = ExtractDiagramTitleFromMarkdown(markdown, selectedItemOrNull, mdPath);
 
@@ -235,5 +260,102 @@ namespace _2vdm_spec_generator.Services
 
             return Path.GetFileNameWithoutExtension(fileItem?.FullPath ?? fallbackPath) ?? defaultTitle;
         }
+
+         // ファイル更新（Markdown保存 + VDM++保存)
+        public (string NormalizedMarkdown, string Vdm) UpdateMarkdownAndVdm(string mdPath, string markdown, IEnumerable<GuiElement> elements)
+        {
+            if (string.IsNullOrWhiteSpace(mdPath))
+                return (string.Empty, string.Empty);
+
+            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
+            File.WriteAllText(mdPath, normalized, Encoding.UTF8);
+
+            var vdm = new MarkdownToVdmConverter().ConvertToVdm(normalized);
+            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm, Encoding.UTF8);
+
+            // CTM要素配置データの保存（無い場合は新規作成）
+            _positionStore.SaveAll(mdPath, elements ?? Array.Empty<GuiElement>());
+
+            if(string.Equals(mdPath, SelectedFilePath, StringComparison.OrdinalIgnoreCase))
+                MarkdownText = normalized;
+
+            return (normalized, vdm);
+        }
+
+        // 画面一覧など、VDM++生成が不要なケース向け
+        public string UpdateMarkdownOnly(string mdPath, string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(mdPath))
+                return string.Empty;
+
+            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
+            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
+            File.WriteAllText(mdPath, normalized, Encoding.UTF8);
+            return normalized;
+        }
+
+                public string UpdateVdmOnly(string mdPath, string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(mdPath))
+                return string.Empty;
+
+            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
+            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
+            var vdm = new MarkdownToVdmConverter().ConvertToVdm(normalized);
+            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm, Encoding.UTF8);
+            return vdm;
+        }
+
+
+        public string CreateNewMarkdownFile(string targetDir, string fileName, string initialContent)
+        {
+            if (string.IsNullOrWhiteSpace(targetDir))
+                throw new ArgumentException("targetDir is null or empty", nameof(targetDir));
+            if (string.IsNullOrWhiteSpace(fileName))
+                throw new ArgumentException("fileName is null or empty", nameof(fileName));
+
+            Directory.CreateDirectory(targetDir);
+
+            var name = fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+                ? fileName
+                : fileName + ".md";
+
+            var path = Path.Combine(targetDir, name);
+            File.WriteAllText(path, initialContent ?? string.Empty, Encoding.UTF8);
+
+            // 内部状態（SelectedFilePath）の更新
+            SelectedFilePath = path;
+            
+            // 索引辞書の更新（最低限ファイル名で引けるようにする）
+            var byName = Path.GetFileNameWithoutExtension(path);
+                        if (!string.IsNullOrWhiteSpace(byName))
+                ScreenIndex[byName] = path;
+            return path;
+        }
+
+        public bool TryGetMarkdownPathByScreenName(string screenName, out string mdPath)
+        {
+            mdPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(screenName)) return false;
+            return ScreenIndex.TryGetValue(screenName.Trim(), out mdPath);
+        }
+
+        public void EnsurePositionsJsonExists(string mdPath, IEnumerable<GuiElement> elements)
+            => _positionStore.EnsureExists(mdPath, elements);
+
+        public void SavePositions(string mdPath, IEnumerable<GuiElement> elements)
+            => _positionStore.SaveAll(mdPath, elements);
+        public void ApplyPositions(string mdPath, IList<GuiElement> elements)
+            => _positionStore.ApplyPositions(mdPath, elements);
+        public void AddOrUpdatePosition(string mdPath, string name, float x, float y)
+            => _positionStore.AddOrUpdatePositionEntry(mdPath, name, x, y);
+
+        public void RenamePosition(string mdPath, string oldName, string newName)
+            => _positionStore.RenamePositionEntry(mdPath, oldName, newName);
+        public void RemovePosition(string mdPath, string name)
+            => _positionStore.RemoveEntry(mdPath, name);
+
     }
 }
