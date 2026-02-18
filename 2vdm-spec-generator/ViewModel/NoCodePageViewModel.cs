@@ -25,6 +25,7 @@ namespace _2vdm_spec_generator.ViewModel
         private readonly UiToMarkdownConverter _uiToMd = new();
         private readonly GuiPositionStore _positionStore = new();
         private readonly ScreenListService _screenListService = new();
+        private readonly ProjectManagementService _projectManager = new();
 
         // ===== Markdown 正規化 =====
         // 異なるエディタ由来のMarkdown（BOM/改行/NBSPなど）の揺れを吸収する。
@@ -109,10 +110,11 @@ namespace _2vdm_spec_generator.ViewModel
         private ObservableCollection<GuiElement> guiElements = new();
         [ObservableProperty]
         private GuiElement selectedGuiElement;
+        private CopiedNode _copiedNode;
 
         public ObservableCollection<FolderItem> FolderItems { get; } = new();
 
-        private readonly Dictionary<string, string> _screenIndex = new(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, string> _screenIndex = new(StringComparer.OrdinalIgnoreCase);
 
         private bool _screenIndexReady;
 
@@ -175,7 +177,6 @@ namespace _2vdm_spec_generator.ViewModel
 #endif
         }
 
-        private CopiedNode _copiedNode;
 
         private sealed class CopiedNode
         {
@@ -274,27 +275,12 @@ namespace _2vdm_spec_generator.ViewModel
         private void LoadFolderItems()
         {
             FolderItems.Clear();
-            if (string.IsNullOrWhiteSpace(SelectedFolderPath) || !Directory.Exists(SelectedFolderPath)) return;
 
-            // ★ ルート（Level=-1）
-            var root = new FolderItem
-            {
-                Name = Path.GetFileName(SelectedFolderPath),
-                FullPath = SelectedFolderPath,
-                Level = -1,
-                IsExpanded = true, // ルートは開いて良い（直下が見える）
-                IsVisible = true
-            };
-            FolderItems.Add(root);
+            var result = _projectManager.BuildFolderItems(selectedFolderPath);
+            foreach (var it in result.Items)
+                FolderItems.Add(it);
 
-            // ★ 直下フォルダは Level=0（初期は閉じる）
-            foreach (var dir in Directory.GetDirectories(SelectedFolderPath))
-                AddFolderRecursive(dir, level: 0);
-
-            // 直下の .md も表示したいならここで追加（必要なら）
-            foreach (var file in Directory.GetFiles(SelectedFolderPath).Where(f => Path.GetExtension(f).ToLower() == ".md"))
-                FolderItems.Add(CreateMarkdownFileItem(file, level: 0));
-
+            _screenIndex = result.ScreenIndex;
             RecomputeFolderTreeVisibility();
         }
 
@@ -495,44 +481,18 @@ namespace _2vdm_spec_generator.ViewModel
 
         private void LoadMarkdownAndVdm(string path)
         {
-            // 読み込み直後に正規化（他エディタ由来の改行/BOM差分を吸収）
-            MarkdownContent = ReadAndNormalizeMarkdown(path);
+            var result = _projectManager.LoadFile(SelectedFolderPath, path, SelectedItem);
 
-            var converter = new MarkdownToVdmConverter();
-            VdmContent = converter.ConvertToVdm(MarkdownContent);
+            MarkdownContent = result.Markdown;
+            VdmContent = result.Vdm;
 
-            // 正規化済みMarkdownから先頭行を判定する
-            string firstLine = GetFirstNonEmptyLine(MarkdownContent);
-            if (firstLine.TrimStart().StartsWith("##", StringComparison.OrdinalIgnoreCase))
-            {
-                IsClassAddButtonVisible = false;
-                IsScreenListAddButtonVisible = false;
-                IsClassAllButtonVisible = true;
-            }
-            else if (firstLine.StartsWith("# 画面一覧"))
-            {
-                IsClassAddButtonVisible = false;
-                IsScreenListAddButtonVisible = true;
-                IsClassAllButtonVisible = false;
-            }
-            else
-            {
-                IsClassAddButtonVisible = true;
-                IsScreenListAddButtonVisible = false;
-                IsClassAllButtonVisible = false;
-            }
-            // 追加: Renderer に渡す画面名集合（正規化済み）
-            ScreenNamesForRenderer = _screenListService.GetScreenNames(SelectedFolderPath);
+            IsClassAddButtonVisible = result.IsClassAddButtonVisible;
+            IsScreenListAddButtonVisible = result.IsScreenListAddButtonVisible;
+            IsClassAllButtonVisible = result.IsClassAllButtonVisible;
 
-            var uiConverter = new MarkdownToUiConverter();
-            GuiElements = new ObservableCollection<GuiElement>(uiConverter.Convert(MarkdownContent));
-
-            LoadGuiPositionsToElements();
-
-            var displayItem = SelectedItem ?? new FolderItem { FullPath = path, Name = Path.GetFileName(path), Level = 0 };
-            DiagramTitle = ExtractDiagramTitleFromMarkdown(MarkdownContent, displayItem);
-
-
+            ScreenNamesForRenderer = result.ScreenNamesForRenderer;
+            GuiElements = new ObservableCollection<GuiElement>(result.Elements);
+            DiagramTitle = result.DiagramTitle;
         }
 
         // ===== 新規 Markdown 作成 =====

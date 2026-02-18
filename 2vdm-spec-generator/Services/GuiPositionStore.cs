@@ -19,6 +19,36 @@ namespace _2vdm_spec_generator.Services
             WriteIndented = true
         };
 
+        public void ApplyPositions(string markdownPath, IList<GuiElement> elements)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(markdownPath) || elements == null || elements.Count == 0) return;
+
+                var posPath = Path.ChangeExtension(markdownPath, ".positions.json");
+                if (!File.Exists(posPath)) return;
+
+                var json = File.ReadAllText(posPath);
+                var list = JsonSerializer.Deserialize<List<GuiElementPosition>>(json);
+                if (list == null || list.Count == 0) return;
+
+                foreach (var pos in list)
+                {
+                    var el = elements.FirstOrDefault(e => string.Equals(e.Name, pos.Name, StringComparison.Ordinal));
+                    if (el != null)
+                    {
+                        el.X = pos.X;
+                        el.Y = pos.Y;
+
+
+                    }
+
+                }
+            }
+            catch
+            {
+            }
+        }
         public void AddOrUpdatePositionEntry(string markdownPath, string name, float x, float y)
         {
             try
