@@ -94,7 +94,26 @@ namespace _2vdm_spec_generator.View
         }
 
 #if WINDOWS
-        private void Platform_PointerPressed(object sender, PointerRoutedEventArgs e)
+         private (GuiElement element, int? branchIndex) HitTest(float x, float y)
+         {
+            if (_drawable.HitRegions == null || _drawable.HitRegions.Count == 0)
+                return (null, null);
+
+            // ZIndex 最大を優先（前面）
+            GuiDiagramDrawable.BRectangle best = null;
+            foreach (var r in _drawable.HitRegions)
+            {
+                if (r == null || r.Element == null) continue;
+                if (!r.ToRect().Contains(x, y)) continue;
+                if (best == null || r.ZIndex >= best.ZIndex) best = r;
+            }
+
+            if (best == null) return (null, null);
+
+            int? bi = (best.BranchIndex >= 0) ? best.BranchIndex : (int?)null;
+            return (best.Element, bi);
+         }
+private void Platform_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (!(sender is UIElement ui)) return;
             var pt = e.GetCurrentPoint(ui).Position;
@@ -107,52 +126,16 @@ namespace _2vdm_spec_generator.View
 
             if (isRight)
             {
-                // 右クリック時はドラッグ開始せずヒットテストのみ行い、該当ノードを報告する
-                // ノード本体のヒットテスト（すべての要素タイプを対象）
-                foreach (var el in _drawable.Elements.AsEnumerable().Reverse())
+                var(hitEl, hitBranchIdx) = HitTest(px, py);
+                if (hitEl != null)
                 {
-                    var rect = new RectF(el.X, el.Y, GuiDiagramDrawable.NodeWidth, GuiDiagramDrawable.NodeHeight);
-                    if (rect.Contains(px, py))
-                    {
-                        // 画面(Screen) 以外もコンテキスト要求を送る
-                        NodeContextRequested?.Invoke(el, "context");
-                        e.Handled = true;
-                        return;
-                    }
-                }
-
-                // ブランチ領域（条件領域やダイヤモンド）も判定して、分岐インデックス情報を渡す
-                if (_drawable.BranchVisuals != null && _drawable.BranchVisuals.Count > 0)
-                {
-                    float condW = GuiDiagramDrawable.NodeWidth * 0.9f;
-                    float condH = GuiDiagramDrawable.NodeHeight * 0.7f;
-                    float diamondW = GuiDiagramDrawable.NodeWidth * 0.8f;
-                    float diamondH = GuiDiagramDrawable.NodeHeight * 0.8f;
-                    float midGap = 24f;
-                    float condRightShift = 40f;
-
-                    foreach (var bv in _drawable.BranchVisuals)
-                    {
-                        float condCenterX = bv.CenterX - (diamondW / 2f + midGap / 2f + condW / 2f) + condRightShift;
-                        var condCenter = new PointF(condCenterX, bv.CenterY);
-                        var condRect = new RectF(condCenter.X - condW / 2f, condCenter.Y - condH / 2f, condW, condH);
-
-                        float targetCenterX = bv.CenterX + (diamondW / 2f + midGap / 2f);
-                        var targetCenter = new PointF(targetCenterX, bv.CenterY);
-                        var diamondRect = new RectF(targetCenter.X - diamondW / 2f, targetCenter.Y - diamondH / 2f, diamondW, diamondH);
-
-                        if (condRect.Contains(px, py) || diamondRect.Contains(px, py))
-                        {
-                            var parent = bv.ParentEvent;
-                            if (parent != null)
-                            {
-                                // 分岐コンテキストを要求する（ actionKey に分岐インデックス情報を含める）
-                                NodeContextRequested?.Invoke(parent, $"branch:{bv.BranchIndex}");
-                                e.Handled = true;
-                                return;
-                            }
-                        }
-                    }
+                    if (hitBranchIdx.HasValue)
+                    NodeContextRequested?.Invoke(hitEl, $"branch:{hitBranchIdx.Value}");
+                    else
+                    NodeContextRequested?.Invoke(hitEl, "context");
+                    
+                    e.Handled = true;
+                    return;
                 }
 
                 // 対象がなければ空白クリックとして View に通知（ここが無いと空白右クリックで何も起きない）
@@ -162,50 +145,7 @@ namespace _2vdm_spec_generator.View
             }
 
             // 左クリック（または右クリック以外）のときはダブルクリック判定を行う
-            // 先にヒットテストしてクリック対象の要素を特定（ブランチは親イベントを参照）
-            GuiElement clickedElement = null;
-            int? clickedBranchIndex = null;
-
-            foreach (var el in _drawable.Elements.AsEnumerable().Reverse())
-            {
-                var rect = new RectF(el.X, el.Y, GuiDiagramDrawable.NodeWidth, GuiDiagramDrawable.NodeHeight);
-                if (rect.Contains(px, py))
-                {
-                    clickedElement = el;
-                    break;
-                }
-            }
-
-            if (clickedElement == null && _drawable.BranchVisuals != null && _drawable.BranchVisuals.Count > 0)
-            {
-                float condW = GuiDiagramDrawable.NodeWidth * 0.9f;
-                float condH = GuiDiagramDrawable.NodeHeight * 0.7f;
-                float diamondW = GuiDiagramDrawable.NodeWidth * 0.8f;
-                float diamondH = GuiDiagramDrawable.NodeHeight * 0.8f;
-                float midGap = 24f;
-                float condRightShift = 40f;
-
-                foreach (var bv in _drawable.BranchVisuals)
-                {
-                    float condCenterX = bv.CenterX - (diamondW / 2f + midGap / 2f + condW / 2f) + condRightShift;
-                    var condCenter = new PointF(condCenterX, bv.CenterY);
-                    var condRect = new RectF(condCenter.X - condW / 2f, condCenter.Y - condH / 2f, condW, condH);
-
-                    float targetCenterX = bv.CenterX + (diamondW / 2f + midGap / 2f);
-                    var targetCenter = new PointF(targetCenterX, bv.CenterY);
-                    var diamondRect = new RectF(targetCenter.X - diamondW / 2f, targetCenter.Y - diamondH / 2f, diamondW, diamondH);
-
-                    if (condRect.Contains(px, py) || diamondRect.Contains(px, py))
-                    {
-                        if (bv.ParentEvent != null)
-                        {
-                            clickedElement = bv.ParentEvent;
-                            clickedBranchIndex = bv.BranchIndex;
-                            break;
-                        }
-                    }
-                }
-            }
+            var (clickedElement, clickedBranchIndex) = HitTest(px, py);
 
             // ダブルクリック判定：対象が Screen（あるいは Screen に対応する分岐）で、短時間で同じ要素を2回
             if (clickedElement != null && clickedElement.Type == GuiElementType.Screen)
@@ -319,59 +259,29 @@ namespace _2vdm_spec_generator.View
 
         private void TryStartDrag(float pointerX, float pointerY)
         {
-            foreach (var el in _drawable.Elements.AsEnumerable().Reverse())
-            {
-                if (!CanDrag(el)) continue;
-
-                var rect = new RectF(el.X, el.Y, GuiDiagramDrawable.NodeWidth, GuiDiagramDrawable.NodeHeight);
-                if (rect.Contains(pointerX, pointerY))
-                {
-                    _draggedNode = el;
-                    _dragOffset = new PointF(pointerX - el.X, pointerY - el.Y);
-
-                    el.IsSelected = true;
-                    _graphicsView.Invalidate();
-
-                    NodeClicked?.Invoke(el);
-
-                    return;
-                }
-            }
-
-            if (_drawable.BranchVisuals != null && _drawable.BranchVisuals.Count > 0)
-            {
-                float condW = GuiDiagramDrawable.NodeWidth * 0.9f;
-                float condH = GuiDiagramDrawable.NodeHeight * 0.7f;
-                float diamondW = GuiDiagramDrawable.NodeWidth * 0.8f;
-                float diamondH = GuiDiagramDrawable.NodeHeight * 0.8f;
-                float midGap = 24f;
-                float condRightShift = 40f;
-
-                foreach (var bv in _drawable.BranchVisuals)
-                {
-                    float condCenterX = bv.CenterX - (diamondW / 2f + midGap / 2f + condW / 2f) + condRightShift;
-                    var condCenter = new PointF(condCenterX, bv.CenterY);
-                    var condRect = new RectF(condCenter.X - condW / 2f, condCenter.Y - condH / 2f, condW, condH);
-
-                    float targetCenterX = bv.CenterX + (diamondW / 2f + midGap / 2f);
-                    var targetCenter = new PointF(targetCenterX, bv.CenterY);
-                    var diamondRect = new RectF(targetCenter.X - diamondW / 2f, targetCenter.Y - diamondH / 2f, diamondW, diamondH);
-
-                    if (condRect.Contains(pointerX, pointerY) || diamondRect.Contains(pointerX, pointerY))
-                    {
-                        var parent = bv.ParentEvent;
-                        if (parent != null)
-                        {
-                            parent.IsSelected = true;
-                            _graphicsView.Invalidate();
-
-                            NodeClicked?.Invoke(parent);
-                            BranchClicked?.Invoke(parent, bv.BranchIndex);
-                            return;
-                        }
-                    }
-                }
-            }
+            var (hitEl, hitBranchIdx) = HitTest(pointerX, pointerY);
+                        if (hitEl == null) return;
+            
+                        // 分岐ノード（条件／分岐先）ならドラッグ開始はしない（クリックとして扱う）
+                        if (hitBranchIdx.HasValue)
+                            {
+                hitEl.IsSelected = true;
+                _graphicsView.Invalidate();
+                
+                NodeClicked?.Invoke(hitEl);
+                BranchClicked?.Invoke(hitEl, hitBranchIdx.Value);
+                                return;
+                            }
+            
+                        if (!CanDrag(hitEl)) return;
+            
+            _draggedNode = hitEl;
+            _dragOffset = new PointF(pointerX - hitEl.X, pointerY - hitEl.Y);
+            
+            hitEl.IsSelected = true;
+            _graphicsView.Invalidate();
+           
+           NodeClicked?.Invoke(hitEl);
         }
 
         private void ContinueDrag(float pointerX, float pointerY)
