@@ -1268,7 +1268,9 @@ namespace _2vdm_spec_generator.ViewModel
                 var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown, GuiElements);
                 updatedMarkdown = normalizedMd;
 
-                var screenFile = FindMdFileForScreenName(oldName);
+                string screenFile = null;
+                if (_projectManager.TryResolveScreenMarkdownPath(oldName, out var resolved) && File.Exists(resolved))
+                screenFile = resolved;
                 if (!string.IsNullOrWhiteSpace(screenFile))
                     {
                     IndexRemove(oldName);
@@ -2138,30 +2140,15 @@ namespace _2vdm_spec_generator.ViewModel
         {
             if (string.IsNullOrWhiteSpace(screenName))
                 return;
-
-            // まず辞書で即決
-            if (ScreenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
-            {
-                ResolveSelectedItemByPath(hit);
-                LoadMarkdownAndVdm(hit);
-                return;
-            }
-
-            // フォールバック（従来探索）
-            var found = FindMdFileForScreenName(screenName);
-            if (string.IsNullOrWhiteSpace(found))
+            
+            if (!_projectManager.TrySwitchScreen(screenName, SelectedItem, out var mdPath, out var _))
             {
                 await Application.Current.MainPage.DisplayAlert("見つかりません", $"\"{screenName}\" に対応する Markdown ファイルが見つかりません。", "OK");
-                return;
+                    return;
             }
-
-            // 見つかったら辞書を自己修復
-        IndexAddOrUpdate(screenName, found);
-        IndexAddOrUpdate(Path.GetFileNameWithoutExtension(found), found);
-        IndexFromFileHeading(found);
-
-         ResolveSelectedItemByPath(found);
-        LoadMarkdownAndVdm(found);
+            
+            ResolveSelectedItemByPath(mdPath);
+            LoadMarkdownAndVdm(mdPath);
         }
 
         public async Task CopySelectedNodeAsync()
@@ -2212,8 +2199,10 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                // 対応する画面ファイルを探して内容も保持（見つからなくてもOK）
-                string screenFile = FindMdFileForScreenName(el.Name);
+                string screenFile = null;
+                if (_projectManager.TryResolveScreenMarkdownPath(el.Name, out var resolved) && File.Exists(resolved))
+                screenFile = resolved;
+                
                 string content = (screenFile != null && File.Exists(screenFile)) ? File.ReadAllText(screenFile) : null;
 
                 _copiedNode = new CopiedNode
@@ -2429,39 +2418,6 @@ namespace _2vdm_spec_generator.ViewModel
             return false;
         }
 
-        private string FindMdFileForScreenName(string screenName)
-        {
-            if (string.IsNullOrWhiteSpace(screenName) || string.IsNullOrWhiteSpace(SelectedFolderPath))
-                return null;
-            if (ScreenIndex.TryGetValue(screenName.Trim(), out var hit) && File.Exists(hit))
-                return hit;
-
-            var mdFiles = Directory.GetFiles(SelectedFolderPath, "*.md", SearchOption.AllDirectories);
-
-            var byName = mdFiles.FirstOrDefault(f =>
-                string.Equals(Path.GetFileNameWithoutExtension(f), screenName, StringComparison.OrdinalIgnoreCase));
-            if (byName != null)
-                           {
-                IndexAddOrUpdate(screenName, byName); // ★自己修復
-                return byName;
-                            }
-
-            foreach (var f in mdFiles)
-            {
-                var head = File.ReadLines(f).Take(30);
-                foreach (var line in head)
-                {
-                    var t = line.Trim();
-                    if ((t.StartsWith("# ") || t.StartsWith("## ")) &&
-                        t.IndexOf(screenName, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        IndexAddOrUpdate(screenName, f);
-                        return f;
-                    }
-                }
-            }
-            return null;
-        }
         private string CreateScreenFileCopy(string sourcePath, string oldScreen, string newScreen, string content)
         {
             try

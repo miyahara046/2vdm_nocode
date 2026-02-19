@@ -45,6 +45,21 @@ namespace _2vdm_spec_generator.Services
             IEnumerable<string> ScreenNamesForRenderer
         );
 
+        public void EnsurePositionsJsonExists(string mdPath, IEnumerable<GuiElement> elements)
+            => _positionStore.EnsureExists(mdPath, elements);
+
+        public void SavePositions(string mdPath, IEnumerable<GuiElement> elements)
+            => _positionStore.SaveAll(mdPath, elements);
+        public void ApplyPositions(string mdPath, IList<GuiElement> elements)
+            => _positionStore.ApplyPositions(mdPath, elements);
+        public void AddOrUpdatePosition(string mdPath, string name, float x, float y)
+            => _positionStore.AddOrUpdatePositionEntry(mdPath, name, x, y);
+
+        public void RenamePosition(string mdPath, string oldName, string newName)
+            => _positionStore.RenamePositionEntry(mdPath, oldName, newName);
+        public void RemovePosition(string mdPath, string name)
+            => _positionStore.RemoveEntry(mdPath, name);
+
         private static string NormalizeMarkdownText(string markdown)
         {
             if (markdown == null) return string.Empty;
@@ -342,20 +357,101 @@ namespace _2vdm_spec_generator.Services
             return ScreenIndex.TryGetValue(screenName.Trim(), out mdPath);
         }
 
-        public void EnsurePositionsJsonExists(string mdPath, IEnumerable<GuiElement> elements)
-            => _positionStore.EnsureExists(mdPath, elements);
+        /// <summary>
+        /// 画面名に対応する Markdown 仕様ファイルパスを決定する
+        /// 優先順位：
+        /// 1) ScreenIndex（辞書）
+        /// 2) SelectedFolderPath 配下の再帰探索（先頭5行の見出し一致）
+        /// 見つかった場合は ScreenIndex を自己変更する
+        /// </summary>
+        public bool TryResolveScreenMarkdownPath(string screenName, out string mdPath)
+        {
+            mdPath = string.Empty;
+            if (string.IsNullOrWhiteSpace(screenName)) return false;
 
-        public void SavePositions(string mdPath, IEnumerable<GuiElement> elements)
-            => _positionStore.SaveAll(mdPath, elements);
-        public void ApplyPositions(string mdPath, IList<GuiElement> elements)
-            => _positionStore.ApplyPositions(mdPath, elements);
-        public void AddOrUpdatePosition(string mdPath, string name, float x, float y)
-            => _positionStore.AddOrUpdatePositionEntry(mdPath, name, x, y);
+            var key = screenName.Trim();
 
-        public void RenamePosition(string mdPath, string oldName, string newName)
-            => _positionStore.RenamePositionEntry(mdPath, oldName, newName);
-        public void RemovePosition(string mdPath, string name)
-            => _positionStore.RemoveEntry(mdPath, name);
+            // 1) 辞書
+            if (ScreenIndex.TryGetValue(key, out var hit) && !string.IsNullOrWhiteSpace(hit) && File.Exists(hit))
+            {
+                mdPath = hit;
+                return true;
+            }
+
+            // 2) 再帰探索
+            if (string.IsNullOrWhiteSpace(SelectedFolderPath) || !Directory.Exists(SelectedFolderPath))
+                return false;
+
+            string[] mdFiles;
+            try
+            {
+                mdFiles = Directory.GetFiles(SelectedFolderPath, "*.md", SearchOption.AllDirectories);
+            }
+            catch
+            {
+                return false;
+            }
+
+            // 3) 見出し一致（先頭5行）
+            foreach (var f in mdFiles)
+            {
+                try
+                {
+                    foreach (var line in File.ReadLines(f).Take(5))
+                    {
+                        var t = (line ?? string.Empty).Trim();
+                        if (t.Length == 0) continue;
+
+                        if (t.StartsWith("# ") || t.StartsWith("## "))
+                        {
+                                // 先頭の # / ## を除去して純粋な見出し文字列を取得
+                            var heading = t.TrimStart('#').Trim();
+                            
+                            if (string.Equals(heading, key, StringComparison.OrdinalIgnoreCase))
+                            {
+                                mdPath = f;
+                                
+                            
+                                ScreenIndex[key] = f;
+                                
+                                var fileNameKey = Path.GetFileNameWithoutExtension(f);
+                                if (!string.IsNullOrWhiteSpace(fileNameKey))
+                                ScreenIndex[fileNameKey] = f;
+                                
+                                IndexFromFileHeading(ScreenIndex, f);
+                                return true;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // 読めないファイルはスキップ
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 画面切り替え処理。
+        /// 画面名から Markdown を解決し、ファイル読込処理を呼び出して FileLoadResult を返す。
+        /// </summary>
+        public bool TrySwitchScreen(string screenName, FolderItem selectedItemOrNull, out string mdPath, out FileLoadResult result)
+        {
+            mdPath = string.Empty;
+            result = null;
+
+            if (!TryResolveScreenMarkdownPath(screenName, out var path))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return false;
+
+            mdPath = path;
+            result = LoadFile(SelectedFolderPath, path, selectedItemOrNull);
+            return true;
+        }
 
     }
 }
