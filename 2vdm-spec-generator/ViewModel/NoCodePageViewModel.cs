@@ -114,7 +114,7 @@ namespace _2vdm_spec_generator.ViewModel
         // ===== ファイル更新処理 =====
         private void PersistMarkdownAndVdm(string mdPath, string newMarkdown)
         {
-            var(md, vdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, newMarkdown, GuiElements);
+            var(md, vdm) = _projectManager.UpdateFile(mdPath, newMarkdown, GuiElements, saveVdm: true, savePositions: true);
             MarkdownContent = md;
             VdmContent = vdm;
         }
@@ -622,7 +622,7 @@ namespace _2vdm_spec_generator.ViewModel
                 var newMarkdown = string.Join(Environment.NewLine, lines);
 
                 // 2) ファイル書き込みと VDM++ 再生成
-                var(normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(path, newMarkdown,GuiElements);
+                var(normalizedMd, newVdm) = _projectManager.UpdateFile(path, newMarkdown, GuiElements, saveVdm: true, savePositions: true);
                 newMarkdown = normalizedMd;
 
                 // 3) 画面一覧ファイル（SelectedFolderPath 配下）にあれば "- {oldName}" を "- {newName}" に置換
@@ -649,7 +649,7 @@ namespace _2vdm_spec_generator.ViewModel
                         if (updated)
                         {
                             var screenMd = string.Join(Environment.NewLine, screenLines);
-                            _projectManager.UpdateMarkdownAndVdm(screenListPath, screenMd,GuiElements);
+                            _projectManager.UpdateFile(screenListPath, screenMd, GuiElements, saveVdm: true, savePositions: true);
                             // ツリー更新
                             LoadFolderItems();
                         }
@@ -914,7 +914,7 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                var (normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
                 updatedMarkdown = normalizedMd;
 
                 // positions.json の名前キーもリネーム（位置保持）
@@ -1071,7 +1071,7 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                var (normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
                 updatedMarkdown = normalizedMd;
 
                 // positions.json の名前キーをリネーム（イベントノードの表示名が変わるため）
@@ -1187,7 +1187,7 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                var(normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown,GuiElements);
+                var(normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
                 updatedMarkdown = normalizedMd;
 
                 // 反映して再解析
@@ -1265,7 +1265,7 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownAndVdm(mdPath, updatedMarkdown, GuiElements);
+                var (normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
                 updatedMarkdown = normalizedMd;
 
                 string screenFile = null;
@@ -1575,7 +1575,7 @@ namespace _2vdm_spec_generator.ViewModel
 
             var builder = _uiToMd;
             string newMarkdown = builder.AddTimeoutEvent(currentMarkdown, seconds, target);
-            var (normalizedMd, vdmContent) = _projectManager.UpdateMarkdownAndVdm(path, newMarkdown, GuiElements);
+            var (normalizedMd, vdmContent) = _projectManager.UpdateFile(path, newMarkdown, GuiElements, saveVdm: true, savePositions: true);  
             MarkdownContent = normalizedMd;
             VdmContent = vdmContent;
         }

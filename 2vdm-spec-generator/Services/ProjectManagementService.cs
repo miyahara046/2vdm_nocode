@@ -276,50 +276,130 @@ namespace _2vdm_spec_generator.Services
             return Path.GetFileNameWithoutExtension(fileItem?.FullPath ?? fallbackPath) ?? defaultTitle;
         }
 
-         // ファイル更新（Markdown保存 + VDM++保存)
-        public (string NormalizedMarkdown, string Vdm) UpdateMarkdownAndVdm(string mdPath, string markdown, IEnumerable<GuiElement> elements)
+        // ファイル更新（Markdown保存 + VDM++保存)
+
+
+        /// <summary>
+        /// (1) Markdown保存
+        /// </summary>
+        public string SaveMarkdown(string mdPath, string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(mdPath))
+                return string.Empty;
+
+            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
+
+            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
+            File.WriteAllText(mdPath, normalized, Encoding.UTF8);
+
+            // 内部状態の更新（選択中ファイルなら MarkdownText を同期）
+            if (string.Equals(mdPath, SelectedFilePath, StringComparison.OrdinalIgnoreCase))
+                MarkdownText = normalized;
+
+            return normalized;
+        }
+
+        /// <summary>
+        /// (2) VDM++生成
+        /// </summary>
+        public string GenerateVdm(string normalizedMarkdown)
+        {
+            // normalizedMarkdown は null を許容しない方針
+            normalizedMarkdown ??= string.Empty;
+            return new MarkdownToVdmConverter().ConvertToVdm(normalizedMarkdown);
+        }
+
+        /// <summary>
+        /// (3) VDM++保存
+        /// </summary>
+        public void SaveVdm(string mdPath, string vdm)
+        {
+            if (string.IsNullOrWhiteSpace(mdPath))
+                return;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
+            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm ?? string.Empty, Encoding.UTF8);
+        }
+
+        /// <summary>
+        /// (4) positions.json 保存
+        /// </summary>
+        public void SavePositionsFromElements(string mdPath, IEnumerable<GuiElement> elements)
+        {
+            // positions は「CTM要素」に対してだけ意味があるので、elements が無い場合は何もしない
+            if (string.IsNullOrWhiteSpace(mdPath)) return;
+            if (elements == null) return;
+
+            _positionStore.SaveAll(mdPath, elements);
+        }
+
+        /// <summary>
+        /// ファイル更新処理。
+        /// </summary>
+        public (string NormalizedMarkdown, string Vdm) UpdateFile(
+            string mdPath,
+            string markdown,
+            IEnumerable<GuiElement> elements,
+            bool saveVdm = true,
+            bool savePositions = true)
         {
             if (string.IsNullOrWhiteSpace(mdPath))
                 return (string.Empty, string.Empty);
 
-            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
+            // (1) Markdown保存
+            var normalized = SaveMarkdown(mdPath, markdown);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
-            File.WriteAllText(mdPath, normalized, Encoding.UTF8);
+            // (2)(3) VDM生成/保存
+            string vdm = string.Empty;
+            if (saveVdm)
+            {
+                vdm = GenerateVdm(normalized);
+                SaveVdm(mdPath, vdm);
+            }
 
-            var vdm = new MarkdownToVdmConverter().ConvertToVdm(normalized);
-            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm, Encoding.UTF8);
-
-            // CTM要素配置データの保存（無い場合は新規作成）
-            _positionStore.SaveAll(mdPath, elements ?? Array.Empty<GuiElement>());
-
-            if(string.Equals(mdPath, SelectedFilePath, StringComparison.OrdinalIgnoreCase))
-                MarkdownText = normalized;
+            // (4) positions.json 保存
+            if (savePositions)
+            {
+                // elements が null の場合は positions を更新しない（事故防止）
+                if (elements != null)
+                    SavePositionsFromElements(mdPath, elements);
+            }
 
             return (normalized, vdm);
         }
 
-        // 画面一覧など、VDM++生成が不要なケース向け
-        public string UpdateMarkdownOnly(string mdPath, string markdown)
-        {
-            if (string.IsNullOrWhiteSpace(mdPath))
-                return string.Empty;
+        // =============================
+        // 既存API（後方互換）: 中身は UpdateFile に委譲
+        // =============================
 
-            var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
-            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
-            File.WriteAllText(mdPath, normalized, Encoding.UTF8);
-            return normalized;
+        /// <summary>
+        /// ファイル更新（Markdown保存 + VDM++保存 + positions保存）
+        /// </summary>
+        public (string NormalizedMarkdown, string Vdm) UpdateMarkdownAndVdm(string mdPath, string markdown, IEnumerable<GuiElement> elements)
+        {
+            return UpdateFile(mdPath, markdown, elements, saveVdm: true, savePositions: true);
         }
 
-                public string UpdateVdmOnly(string mdPath, string markdown)
+        /// <summary>
+        /// Markdown のみ更新
+        /// </summary>
+        public string UpdateMarkdownOnly(string mdPath, string markdown)
+        {
+            return SaveMarkdown(mdPath, markdown);
+        }
+
+        /// <summary>
+        /// VDM++ のみ更新
+        /// </summary>
+        public string UpdateVdmOnly(string mdPath, string markdown)
         {
             if (string.IsNullOrWhiteSpace(mdPath))
                 return string.Empty;
 
+            // Markdown はファイルへ保存せず、与えられた markdown から VDM を生成して .vdmpp のみ保存する
             var normalized = NormalizeMarkdownText(markdown ?? string.Empty);
-            Directory.CreateDirectory(Path.GetDirectoryName(mdPath) ?? string.Empty);
-            var vdm = new MarkdownToVdmConverter().ConvertToVdm(normalized);
-            File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm, Encoding.UTF8);
+            var vdm = GenerateVdm(normalized);
+            SaveVdm(mdPath, vdm);
             return vdm;
         }
 
