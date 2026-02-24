@@ -268,7 +268,7 @@ namespace _2vdm_spec_generator.Services
                 {
                     var title = t.TrimStart('#').Trim();
                     if (string.Equals(title, "画面一覧", StringComparison.OrdinalIgnoreCase))
-                        return defaultTitle;
+                        return title = "画面一覧";
                     return title;
                 }
             }
@@ -276,12 +276,18 @@ namespace _2vdm_spec_generator.Services
             return Path.GetFileNameWithoutExtension(fileItem?.FullPath ?? fallbackPath) ?? defaultTitle;
         }
 
-        // ファイル更新（Markdown保存 + VDM++保存)
+         public string GetDiagramTitle(string markdown, FolderItem selectedItemOrNull, string fallbackPath = "")
+        {
+            // Service 内の既存 private メソッドへ委譲する
+            return ExtractDiagramTitleFromMarkdown(
+                markdown,
+                selectedItemOrNull,
+                string.IsNullOrWhiteSpace(fallbackPath)? selectedItemOrNull?.FullPath : fallbackPath
+            );
+        }
 
-
-        /// <summary>
-        /// (1) Markdown保存
-        /// </summary>
+        // ファイル更新（Markdown保存 + VDM++保存
+        // (1) Markdown保存
         public string SaveMarkdown(string mdPath, string markdown)
         {
             if (string.IsNullOrWhiteSpace(mdPath))
@@ -299,9 +305,7 @@ namespace _2vdm_spec_generator.Services
             return normalized;
         }
 
-        /// <summary>
-        /// (2) VDM++生成
-        /// </summary>
+        //(2) VDM++生成
         public string GenerateVdm(string normalizedMarkdown)
         {
             // normalizedMarkdown は null を許容しない方針
@@ -309,9 +313,8 @@ namespace _2vdm_spec_generator.Services
             return new MarkdownToVdmConverter().ConvertToVdm(normalizedMarkdown);
         }
 
-        /// <summary>
-        /// (3) VDM++保存
-        /// </summary>
+
+        // (3) VDM++保存
         public void SaveVdm(string mdPath, string vdm)
         {
             if (string.IsNullOrWhiteSpace(mdPath))
@@ -321,9 +324,8 @@ namespace _2vdm_spec_generator.Services
             File.WriteAllText(Path.ChangeExtension(mdPath, ".vdmpp"), vdm ?? string.Empty, Encoding.UTF8);
         }
 
-        /// <summary>
-        /// (4) positions.json 保存
-        /// </summary>
+
+        // (4) positions.json 保存
         public void SavePositionsFromElements(string mdPath, IEnumerable<GuiElement> elements)
         {
             // positions は「CTM要素」に対してだけ意味があるので、elements が無い場合は何もしない
@@ -333,9 +335,8 @@ namespace _2vdm_spec_generator.Services
             _positionStore.SaveAll(mdPath, elements);
         }
 
-        /// <summary>
-        /// ファイル更新処理。
-        /// </summary>
+
+        // ファイル更新処理。
         public (string NormalizedMarkdown, string Vdm) UpdateFile(
             string mdPath,
             string markdown,
@@ -368,29 +369,9 @@ namespace _2vdm_spec_generator.Services
             return (normalized, vdm);
         }
 
-        // =============================
-        // 既存API（後方互換）: 中身は UpdateFile に委譲
-        // =============================
 
-        /// <summary>
-        /// ファイル更新（Markdown保存 + VDM++保存 + positions保存）
-        /// </summary>
-        public (string NormalizedMarkdown, string Vdm) UpdateMarkdownAndVdm(string mdPath, string markdown, IEnumerable<GuiElement> elements)
-        {
-            return UpdateFile(mdPath, markdown, elements, saveVdm: true, savePositions: true);
-        }
 
-        /// <summary>
-        /// Markdown のみ更新
-        /// </summary>
-        public string UpdateMarkdownOnly(string mdPath, string markdown)
-        {
-            return SaveMarkdown(mdPath, markdown);
-        }
-
-        /// <summary>
-        /// VDM++ のみ更新
-        /// </summary>
+        // VDM++ のみ更新
         public string UpdateVdmOnly(string mdPath, string markdown)
         {
             if (string.IsNullOrWhiteSpace(mdPath))
@@ -513,10 +494,8 @@ namespace _2vdm_spec_generator.Services
             return false;
         }
 
-        /// <summary>
-        /// 画面切り替え処理。
-        /// 画面名から Markdown を解決し、ファイル読込処理を呼び出して FileLoadResult を返す。
-        /// </summary>
+        // 画面切り替え処理。
+        // 画面名から Markdown を解決し、ファイル読込処理を呼び出して FileLoadResult を返す。
         public bool TrySwitchScreen(string screenName, FolderItem selectedItemOrNull, out string mdPath, out FileLoadResult result)
         {
             mdPath = string.Empty;

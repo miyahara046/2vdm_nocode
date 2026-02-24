@@ -359,31 +359,6 @@ namespace _2vdm_spec_generator.ViewModel
 
 
 
-        private string ExtractDiagramTitleFromMarkdown(string markdown, FolderItem fileItem)
-        {
-            const string defaultTitle = "Condition Transition Map";
-            if (fileItem == null) return defaultTitle;
-
-            if (string.IsNullOrWhiteSpace(markdown))
-                return Path.GetFileNameWithoutExtension(fileItem.FullPath) ?? defaultTitle;
-
-            var lines = markdown.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-            foreach (var l in lines)
-            {
-                var t = l?.Trim();
-                if (string.IsNullOrEmpty(t)) continue;
-                if (t.StartsWith("# ") || t.StartsWith("## "))
-                {
-                    var title = t.TrimStart('#').Trim();
-                    if (string.Equals(title, "画面一覧", StringComparison.OrdinalIgnoreCase))
-                        return defaultTitle;
-                    return title;
-                }
-            }
-
-            return Path.GetFileNameWithoutExtension(fileItem.FullPath) ?? defaultTitle;
-        }
-
         /// <summary>
         /// 指定フォルダを FolderItems に追加し、そのフォルダ内の .md ファイルを追加してからサブフォルダを再帰的に追加する。
         /// </summary>
@@ -1672,7 +1647,7 @@ namespace _2vdm_spec_generator.ViewModel
             // 追加: 編集時にも選択ファイルがあればタイトルを更新する
             if (SelectedItem != null)
             {
-                DiagramTitle = ExtractDiagramTitleFromMarkdown(normalized, SelectedItem);
+                DiagramTitle = _projectManager.GetDiagramTitle(normalized, SelectedItem, SelectedItem?.FullPath);
             }
             else
             {
