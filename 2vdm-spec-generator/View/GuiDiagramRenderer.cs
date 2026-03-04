@@ -5,6 +5,10 @@ using System.Linq;
 using System.Collections.Generic;
 using _2vdm_spec_generator.ViewModel;
 using Microsoft.Maui.ApplicationModel; // MainThread
+using System.Collections;
+using System.Xml.Linq;
+
+
 
 #if WINDOWS
 using Microsoft.UI.Xaml;
@@ -488,6 +492,9 @@ private void Platform_PointerPressed(object sender, PointerRoutedEventArgs e)
         public void Render(IEnumerable<GuiElement> elements, IEnumerable<string> screenNames = null)
         {
             var list = elements?.ToList() ?? new();
+            list = list
+                            .Where(e => !IsMetaScreenElement(e))
+                            .ToList();
             _drawable.Elements = list;
 
             // 外部から画面名集合が渡されたら Drawable にセット（Drawable 内で正規化して利用する）
@@ -513,6 +520,17 @@ private void Platform_PointerPressed(object sender, PointerRoutedEventArgs e)
 
             InvalidateMeasure();
             _graphicsView.Invalidate();
+        }
+
+        private static bool IsMetaScreenElement(GuiElement e)       
+        {
+        if (e == null) return false;
+        if (e.Type != GuiElementType.Screen) return false;
+
+        var name = (e.Name ?? string.Empty).Trim();
+        if (name.StartsWith("#", StringComparison.Ordinal)) return true;
+        if (name.StartsWith("##", StringComparison.Ordinal)) return true;
+            return false;
         }
 
         public void FinishCurrentDrag() => FinishDrag(_draggedNode);

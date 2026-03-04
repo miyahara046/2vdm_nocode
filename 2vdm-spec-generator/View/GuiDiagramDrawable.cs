@@ -66,6 +66,9 @@ namespace _2vdm_spec_generator.View
 
         public void ArrangeNodes()
         {
+            // 最初の Screen 要素はレイアウトから除外する（スキップ）
+            var firstScreen = Elements?.FirstOrDefault(e => e.Type == GuiElementType.Screen);
+
             float timeoutY = timeoutStartY;
             foreach (var el in Elements.Where(e => e.Type == GuiElementType.Timeout))
             {
@@ -76,7 +79,7 @@ namespace _2vdm_spec_generator.View
             }
 
             int screenIndex = 0;
-            foreach (var el in Elements.Where(e => e.Type == GuiElementType.Screen))
+            foreach (var el in Elements.Where(e => e.Type == GuiElementType.Screen && !IsHeaderScreen(e)))
             {
                 if (IsUnpositioned(el))
                 {
@@ -293,6 +296,10 @@ namespace _2vdm_spec_generator.View
 
         private static bool IsUnpositioned(GuiElement e) => e.X == 0 && e.Y == 0;
 
+        private bool IsHeaderScreen(GuiElement e)
+            => e != null
+               && e.Type == GuiElementType.Screen
+               && string.Equals((e.Name ?? string.Empty).Trim(), "Screen", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 描画の基本関数
@@ -335,7 +342,7 @@ namespace _2vdm_spec_generator.View
             }
 
             // Elements 側の Screen 名も必ず追加する（ScreenNameSet が不完全なケースへの保険）
-            foreach (var s in Elements.Where(e => e.Type == GuiElementType.Screen && !string.IsNullOrWhiteSpace(e.Name)))
+            foreach (var s in Elements.Where(e => e.Type == GuiElementType.Screen && !IsHeaderScreen(e) && !string.IsNullOrWhiteSpace(e.Name)))
             {
                 var n = NormalizeLabel(s.Name);
                 if (!string.IsNullOrEmpty(n)) screenNames.Add(n);
@@ -377,6 +384,8 @@ namespace _2vdm_spec_generator.View
                 if (string.IsNullOrEmpty(el.Target)) continue;
                 if (el.Type == GuiElementType.Event && el.Branches != null && el.Branches.Count > 0) continue;
                 if (!string.IsNullOrWhiteSpace(el.Name) && parentEventNames.Contains(NormalizeLabel(el.Name))) continue;
+
+                if (el.Type == GuiElementType.Button && parentEventNames.Contains(NormalizeLabel(el.Target))) continue;
 
                 if (TryResolvePosition(el.Name, positions, normPositions, out var f) &&
                     TryResolvePosition(el.Target, positions, normPositions, out var t))
@@ -564,21 +573,15 @@ namespace _2vdm_spec_generator.View
                         BranchIndex = bv.BranchIndex
                     });
                 }
-                if (!string.IsNullOrWhiteSpace(bv.Target) && TryResolvePosition(bv.Target, positions, normPositions, out var targetPos))
-                {
-                    var targetRectRight = new PointF(targetCenter.X + tW / 2f, targetCenter.Y);
-                    var targetPoint = new PointF(targetPos.X, targetPos.Y + NodeHeight / 2f);
-                    var linkColor = targetInScreen ? Colors.Gray : Colors.Red;
-                    canvas.StrokeColor = linkColor;
-                    canvas.StrokeSize = 1.5f;
-                    canvas.DrawLine(targetRectRight, new PointF(targetPoint.X - 6f, targetPoint.Y));
-                    DrawArrow(canvas, targetRectRight, targetPoint, linkColor);
-                }
             }
 
             // ノード本体描画
             foreach (var el in Elements)
             {
+
+                if (IsHeaderScreen(el))
+                    continue;
+                
                 if (el.Type == GuiElementType.Event && el.Branches != null && el.Branches.Count > 0)
                     continue;
 

@@ -75,15 +75,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// 「### 有効ボタン一覧」セクションにボタンを追加する。
-        /// アルゴリズムのポイント:
-        /// - まず先頭 5 行（小さいファイルで見つかることが多いため）から見出し探索を行う。
-        /// - 見出しが見つかれば、その見出し直後の適切な位置（空行、または次の見出し直前）を挿入箇所とする。
-        /// - 見つからなければ、ファイル先頭付近（最初の 4 行の最後の非空行の次）に見出しとリストを挿入する。
-        /// 
-        /// 計算量: O(n)（行走査）だが探索領域は通常小さいため定数に近い。
-        /// 注意点:
-        /// - 改行コードの混在を考慮して複数種の改行区切りで Split している。
-        /// - Name 重複や既に同名リスト項目が存在するかのチェックは呼び出し元で行う想定。
         /// </summary>
         public string AddButton(string markdown, string buttonName)
         {
@@ -256,16 +247,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// 条件分岐イベント（複数ブランチ）を追加する。
-        /// - 基本的な出力形式:
-        ///   - {button}押下 →
-        ///       - {condition1} → {target1}
-        ///       - {condition2} → {target2}
-        /// - branches 引数は (Condition, Target) のタプルリストで、null は ArgumentNullException とする。
-        /// 
-        /// 実装メモ:
-        /// - まず "### イベント一覧" セクションの有無を確認し、存在しなければ新規追加する。
-        /// - メイン行を追加した後、各分岐を 2 スペースインデントの "- " 行として追加する。
-        /// - 入力の正規化（Trim）を行っているが、複雑な記法や入れ子構造には対応しない。
         /// </summary>
         public string AddConditionalEvent(string markdown, string buttonName, List<(string Condition, string Target)> branches)
         {
@@ -405,13 +386,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// タイムアウト（秒数）と、そのタイムアウト時の遷移先を Markdown に追加または更新する。
-        /// 処理の流れ:
-        /// 1) 2 行目に "- {N}秒でタイムアウト" を追加または上書き
-        /// 2) "### イベント一覧" セクションを探して、"- タイムアウト → {target}へ" 行を上書きまたは追加
-        /// 
-        /// 注意点:
-        /// - 既存の "でタイムアウト" 表記の検出は簡易な contains ベース。柔軟性より実用性を優先している。
-        /// - イベント一覧がない場合は末尾にセクションを作る。
         /// </summary>
         public string AddTimeoutEvent(string markdown, int timeoutSeconds, string target)
         {
@@ -419,9 +393,6 @@ namespace _2vdm_spec_generator.Services
 
             const string eventHeading = "### イベント一覧";
 
-            // -----------------------------
-            // ❶ ファイル2行目に「～でタイムアウト」を追加 or 上書き
-            // -----------------------------
             string timeoutLine = $"- {timeoutSeconds}秒でタイムアウト";
 
             if (lines.Count >= 2)
@@ -449,9 +420,6 @@ namespace _2vdm_spec_generator.Services
                 lines.Add(timeoutLine);
             }
 
-            // -----------------------------
-            // ❷ イベント一覧セクションの開始／終了位置を決定（再取得）
-            // -----------------------------
             int eventHeadingIndex = -1;
             for (int i = 0; i < lines.Count; i++)
             {
@@ -485,9 +453,6 @@ namespace _2vdm_spec_generator.Services
                 sectionEnd = sectionStart;
             }
 
-            // -----------------------------
-            // ❸ セクション内で既存の "- タイムアウト →" 行を探して上書き、なければセクション末尾へ挿入
-            // -----------------------------
             int actionLineIndex = -1;
             if (sectionStart >= 0)
             {
@@ -522,7 +487,7 @@ namespace _2vdm_spec_generator.Services
                         lines.RemoveAt(actionLineIndex);
                     }
                 }
-                }
+            }
 
             lines = NormalizeEmptyLines(lines);
             lines = EnsureButtonBeforeEvent(lines);
@@ -593,8 +558,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// Button 要素を Y 座標順に並べ替えて名前リストを作成するヘルパー。
-        /// - 戻り値はリストの各要素がリスト用の文字列（Name.Trim()）である。
-        /// - 計算量: O(n log n) (OrderBy)
         /// </summary>
         private static List<string> BuildButtonList(IEnumerable<GuiElement> elements)
         {
@@ -607,8 +570,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// Event 要素の名前を Y 座標順で抽出するヘルパー。
-        /// - ReplaceEventSection の並べ替えキーとして使う。
-        /// - 計算量: O(n log n)（OrderBy）
         /// </summary>
         private static List<string> BuildEventBlockOrder(IEnumerable<GuiElement> elements)
         {
@@ -621,13 +582,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// 指定見出しセクションを単純なリストセクション（- item の順次行）として置き換える。
-        /// アルゴリズム:
-        /// - 見出し位置を探し、その直後から次の空行または次の見出しまでを既存セクションと見なす。
-        /// - 新しい heading + items + 空行 を作成し、既存の該当範囲を置換する。
-        /// 
-        /// 注意:
-        /// - セクション内に複雑なサブ構造がある場合（ネストやコードブロック等）は破壊的になる可能性がある。
-        /// </summary>
         private static List<string> ReplaceListSection(List<string> lines, string heading, List<string> newItems)
         {
             if (newItems == null || newItems.Count == 0) return lines;
@@ -660,21 +614,6 @@ namespace _2vdm_spec_generator.Services
 
         /// <summary>
         /// イベントセクションを「ブロック単位」で扱い、ブロックの順序を再構築する。
-        /// ブロック定義:
-        /// - トップレベルの "- " で始まる行をブロック先頭とし、
-        /// - それに続くインデント（先頭に２つ以上のスペース、あるいはタブ）または空行をブロックの一部とする。
-        /// 
-        /// 並べ替えアルゴリズム:
-        /// - blocksOrder (GuiElement.Name のリスト) に従い、各 desired 名称を含むブロックを前から順に採用する（部分一致）。
-        /// - マッチしなかったブロックは後から元の順序で追加する（安定性のため）。
-        /// 
-        /// 設計上の注意:
-        /// - マッチングは単純な部分文字列一致 (Contains) に依存するため、
-        ///   異なるブロックに同じキーワードが含まれると意図しないマッチングが起きることがある。
-        /// - ブロックの検出は行頭 "- " に依存しているため、Markdown の複雑な構造（ネストされたリスト、コードブロック中の行等）には脆弱。
-        /// - より堅牢にする場合は完全な Markdown パーサを用いて AST を操作することを検討する。
-        /// 
-        /// 計算量: ブロック収集 O(n), 並べ替えマッチングは O(b * m)（b=ブロック数, m=blocksOrder 長）だが実用上小さい。
         /// </summary>
         private static List<string> ReplaceEventSection(List<string> lines, string heading, List<string> blocksOrder)
         {
@@ -682,7 +621,7 @@ namespace _2vdm_spec_generator.Services
             if (idx == -1) return lines;
 
             int cursor = idx + 1;
-            // Collect blocks
+
             var blocks = new List<(string key, List<string> textLines)>();
             while (cursor < lines.Count)
             {
@@ -690,8 +629,6 @@ namespace _2vdm_spec_generator.Services
                 if (string.IsNullOrWhiteSpace(line))
                 {
                     cursor++;
-                    // stop at first blank followed by heading or end? We'll treat blank as separator but continue
-                    // We'll break if next non-empty is another heading
                     int look = cursor;
                     while (look < lines.Count && string.IsNullOrWhiteSpace(lines[look])) look++;
                     if (look < lines.Count && (lines[look].TrimStart().StartsWith("### ") || lines[look].TrimStart().StartsWith("## ") || lines[look].TrimStart().StartsWith("# ")))
@@ -703,15 +640,14 @@ namespace _2vdm_spec_generator.Services
                     break;
                 }
 
-                // Expect top-level block starts with "- "
                 if (line.TrimStart().StartsWith("- "))
                 {
                     var block = new List<string> { line };
                     int next = cursor + 1;
-                    // collect indented or nested lines (starting with two or more spaces) as part of the block
+
                     while (next < lines.Count && (lines[next].StartsWith("  ") || lines[next].StartsWith("\t") || string.IsNullOrWhiteSpace(lines[next])))
                     {
-                        // stop if next is a top-level new "- " with same indent (no leading spaces)
+
                         if (!string.IsNullOrWhiteSpace(lines[next]) && lines[next].TrimStart().StartsWith("- ") && !lines[next].StartsWith("  "))
                             break;
 
@@ -719,9 +655,8 @@ namespace _2vdm_spec_generator.Services
                         next++;
                     }
 
-                    // Determine a key for this block for matching: try to extract meaningful token from first line
+
                     var first = block.First().Trim();
-                    // Remove leading "- " and trim
                     var keyCandidate = first.StartsWith("- ") ? first.Substring(2).Trim() : first;
                     blocks.Add((keyCandidate, block));
                     cursor = next;
@@ -732,15 +667,12 @@ namespace _2vdm_spec_generator.Services
                 }
             }
 
-            // If no blocks found, nothing to do
+
             if (!blocks.Any()) return lines;
 
-            // Build reorder mapping: blocksOrder contains element names in desired order.
-            // We'll try to match each desired name to a block whose first line contains that name.
             var orderedBlocks = new List<List<string>>();
             var used = new bool[blocks.Count];
 
-            // First, match by contains (exact substring) in order of blocksOrder
             foreach (var desired in blocksOrder)
             {
                 bool matched = false;
@@ -756,27 +688,22 @@ namespace _2vdm_spec_generator.Services
                         break;
                     }
                 }
-                // if not matched, continue — we will append unmatched blocks later
             }
 
-            // Append any remaining unmatched blocks in original order
+
             for (int i = 0; i < blocks.Count; i++)
             {
                 if (!used[i])
                     orderedBlocks.Add(blocks[i].textLines);
             }
 
-            // Now rebuild the final lines:
-            // Keep everything before heading, then heading, then flattened ordered blocks, then remainder after the original event section
-            // Determine where the original event section ended (cursor where we stopped collecting)
+
             int endOfSectionCursor = cursor;
-            // If we broke because of heading, cursor currently points at that heading or beyond.
 
             var result = new List<string>();
-            result.AddRange(lines.Take(idx)); // before heading
-            result.Add(lines[idx]); // the heading itself
+            result.AddRange(lines.Take(idx));
+            result.Add(lines[idx]);
 
-            // Add ordered blocks
             foreach (var blockLines in orderedBlocks)
             {
                 foreach (var bl in blockLines)
@@ -798,7 +725,6 @@ namespace _2vdm_spec_generator.Services
         {
             if (lines == null) return new List<string>();
 
-            // find first/last non-blank to trim leading/trailing blanks
             int first = 0;
             while (first < lines.Count && string.IsNullOrWhiteSpace(lines[first])) first++;
             if (first >= lines.Count) return new List<string>();
@@ -896,9 +822,6 @@ namespace _2vdm_spec_generator.Services
 
             return NormalizeEmptyLines(lines);
         }
-        // =============================
-        // ViewModel から移管した責務（編集・抽出・貼り付け）
-        // =============================
 
         /// <summary>
         /// イベント一覧内の "→ 遷移先" 部分を oldTarget -> newTarget に置換する。
@@ -1267,6 +1190,191 @@ namespace _2vdm_spec_generator.Services
 
             lines = NormalizeEmptyLines(lines);
             return string.Join(Environment.NewLine, lines);
+        }
+
+
+
+        /// <summary>
+        /// GUI 操作で更新された elements を正として、Markdown を再生成する。
+
+        /// </summary>
+        public string ConvertFromElements(IEnumerable<GuiElement> elements, string originalMarkdown)
+        {
+            var elemList = (elements ?? Enumerable.Empty<GuiElement>()).ToList();
+
+            // 改行正規化（内部処理は \n 基準）
+            var lines = string.IsNullOrWhiteSpace(originalMarkdown)
+                ? new List<string>()
+                : originalMarkdown.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n').ToList();
+
+            if (lines.Count == 0)
+                lines.Add(string.Empty);
+
+            var first = (lines[0] ?? string.Empty).Trim();
+
+            // 画面一覧仕様
+            if (string.Equals(first, "# 画面一覧", StringComparison.Ordinal))
+            {
+                var screenList = elemList
+                    .Where(e => e.Type == GuiElementType.Screen && !string.Equals(e.Name, "画面一覧", StringComparison.Ordinal))
+                    .OrderBy(e => e.Y)
+                    .Select(e => e.Name?.Trim())
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .ToList();
+
+                var outLines = new List<string> { "# 画面一覧", "" };
+                outLines.AddRange(screenList.Select(n => "- " + n));
+
+                outLines = NormalizeEmptyLines(outLines);
+                return string.Join(Environment.NewLine, outLines);
+            }
+
+            // 画面仕様（先頭が "## "）
+            if (first.StartsWith("## "))
+            {
+                var outLines = ConvertScreenSpecFromElements(elemList, lines);
+                outLines = NormalizeEmptyLines(outLines);
+                return string.Join(Environment.NewLine, outLines);
+            }
+
+            // 想定外の形式は破壊しない
+            return originalMarkdown ?? string.Empty;
+        }
+
+        private static string NormalizeToken(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            return Regex.Replace(s.Trim(), "\\s+", "");
+        }
+
+        private List<string> ConvertScreenSpecFromElements(List<GuiElement> elements, List<string> originalLines)
+        {
+            var outLines = new List<string>();
+
+            // 1) 画面名
+            var screen = elements.FirstOrDefault(e => e.Type == GuiElementType.Screen);
+            var screenName = screen?.Name?.Trim();
+
+            if (string.IsNullOrWhiteSpace(screenName))
+            {
+                var first = (originalLines.Count > 0 ? originalLines[0] : string.Empty) ?? string.Empty;
+                screenName = first.StartsWith("## ") ? first.Substring(3).Trim() : "画面";
+            }
+
+            // 2) タイムアウト（2行目相当）
+            var timeout = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout);
+            var timeoutLine = string.Empty;
+            if (timeout != null && !string.IsNullOrWhiteSpace(timeout.Name))
+                timeoutLine = "- " + timeout.Name.Trim() + "でタイムアウト";
+
+            // 3) 有効ボタン一覧（Y昇順）
+            var buttons = elements
+                .Where(e => e.Type == GuiElementType.Button)
+                .OrderBy(e => e.Y)
+                .ToList();
+
+            // 4) イベント一覧生成のための sourceList（Button + Timeout をY昇順）
+            var sourceList = elements
+                .Where(e => e.Type == GuiElementType.Button || e.Type == GuiElementType.Timeout)
+                .OrderBy(e => e.Y)
+                .ToList();
+
+            var events = elements
+                .Where(e => e.Type == GuiElementType.Event && !string.IsNullOrWhiteSpace(e.Name))
+                .ToList();
+
+            // ---- 出力（画面ヘッダ）----
+            outLines.Add("## " + screenName);
+            outLines.Add(timeoutLine);
+            outLines.Add("");
+
+            // ---- 有効ボタン一覧 ----
+            if (buttons.Count > 0)
+            {
+                outLines.Add("### 有効ボタン一覧");
+                foreach (var b in buttons)
+                {
+                    if (string.IsNullOrWhiteSpace(b.Name)) continue;
+                    outLines.Add("- " + b.Name.Trim());
+                }
+                outLines.Add("");
+            }
+
+            // ---- イベント一覧 ----
+            outLines.Add("### イベント一覧");
+
+            foreach (var src in sourceList)
+            {
+                // (a) タイムアウト → イベント
+                if (src.Type == GuiElementType.Timeout)
+                {
+                    if (timeout == null || string.IsNullOrWhiteSpace(timeout.Name))
+                        continue;
+
+                    var ev = events.FirstOrDefault(e =>
+                        !string.IsNullOrWhiteSpace(e.Target)
+                        && string.Equals(NormalizeToken(e.Target), NormalizeToken(timeout.Name), StringComparison.Ordinal));
+
+                    if (ev != null)
+                        outLines.Add("- タイムアウト → " + ev.Name.Trim());
+
+                    continue;
+                }
+
+                // (b) ボタン 押下 → xxx（xxx が条件分岐イベントなら枝も出力）
+                var btn = src;
+                var btnName = btn.Name?.Trim();
+                var btnTarget = btn.Target?.Trim();
+
+                if (string.IsNullOrWhiteSpace(btnName) || string.IsNullOrWhiteSpace(btnTarget))
+                    continue;
+
+                var conditionalEvent = events.FirstOrDefault(e =>
+                    string.Equals(NormalizeToken(e.Name), NormalizeToken(btnTarget), StringComparison.Ordinal)
+                    && e.IsConditional);
+
+                if (conditionalEvent != null)
+                {
+                    outLines.Add("- " + btnName + "押下 →");
+                    foreach (var br in conditionalEvent.Branches ?? new List<GuiElement.EventBranch>())
+                    {
+                        if (string.IsNullOrWhiteSpace(br?.Condition) || string.IsNullOrWhiteSpace(br?.Target))
+                            continue;
+
+                        var tgt = br.Target.Trim();
+                        if (!tgt.EndsWith("へ", StringComparison.Ordinal)) tgt += "へ";
+                        outLines.Add("  - " + br.Condition.Trim() + " → " + tgt);
+                    }
+                    continue;
+                }
+
+                outLines.Add("- " + btnName + " 押下 → " + btnTarget);
+            }
+
+            // ---- 孤立イベント（リンクされないイベント）を末尾へ ----
+            var linked = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var b in elements.Where(e => e.Type == GuiElementType.Button))
+            {
+                if (!string.IsNullOrWhiteSpace(b.Target))
+                    linked.Add(NormalizeToken(b.Target));
+            }
+            if (timeout != null && !string.IsNullOrWhiteSpace(timeout.Name))
+                linked.Add(NormalizeToken(timeout.Name));
+
+            foreach (var ev in events)
+            {
+                var isTimeoutLinked = timeout != null
+                    && !string.IsNullOrWhiteSpace(ev.Target)
+                    && string.Equals(NormalizeToken(ev.Target), NormalizeToken(timeout.Name), StringComparison.Ordinal);
+
+                var isButtonLinked = linked.Contains(NormalizeToken(ev.Name)) || linked.Contains(NormalizeToken(ev.Target ?? ""));
+
+                if (isTimeoutLinked || isButtonLinked) continue;
+
+                outLines.Add("- " + ev.Name.Trim());
+            }
+
+            return outLines;
         }
 
     }

@@ -21,6 +21,10 @@ namespace _2vdm_spec_generator.Services
 
         private readonly ScreenListService _screenListService = new();
 
+        private readonly UiToMarkdownConverter _uiToMd = new();
+
+        private readonly MarkdownToVdmConverter _mdToVdm = new();
+
         private static readonly Regex BulletNormalizeRegex =
             new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
         public string SelectedFolderPath { get; private set; } = string.Empty;
@@ -60,7 +64,17 @@ namespace _2vdm_spec_generator.Services
         public void RemovePosition(string mdPath, string name)
             => _positionStore.RemoveEntry(mdPath, name);
 
-        private static string NormalizeMarkdownText(string markdown)
+        public string UiToMarkdown(IEnumerable<GuiElement> elements, string fileName)
+        {
+            return _uiToMd.ConvertFromElements(elements?.ToList() ?? new List<GuiElement>(), fileName);
+        }
+
+        public string MarkdownToVdm(string markdown)
+        {
+            return _mdToVdm.ConvertToVdm(markdown ?? string.Empty);
+        }
+
+private static string NormalizeMarkdownText(string markdown)
         {
             if (markdown == null) return string.Empty;
 
@@ -278,7 +292,6 @@ namespace _2vdm_spec_generator.Services
 
          public string GetDiagramTitle(string markdown, FolderItem selectedItemOrNull, string fallbackPath = "")
         {
-            // Service 内の既存 private メソッドへ委譲する
             return ExtractDiagramTitleFromMarkdown(
                 markdown,
                 selectedItemOrNull,
@@ -492,6 +505,20 @@ namespace _2vdm_spec_generator.Services
             }
 
             return false;
+        }
+
+        public (string NormalizedMarkdown, string Vdm) UpdateMarkdownFromElements(
+            string mdPath,
+            IEnumerable<GuiElement> elements,
+            string currentMarkdown,
+            bool saveVdm = true,
+            bool savePositions = true)
+        {
+            if (elements == null)
+                return (string.Empty, string.Empty);
+
+            var updatedMarkdown = _uiToMd.ConvertFromElements(elements, currentMarkdown ?? string.Empty);
+            return UpdateFile(mdPath, updatedMarkdown, elements, saveVdm: saveVdm, savePositions: savePositions);
         }
 
         // 画面切り替え処理。

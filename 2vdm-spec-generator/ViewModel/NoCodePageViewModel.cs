@@ -6,10 +6,9 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Maui.Controls;
 using System;
 using System.Collections.Generic;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.IO;
-using System.Linq;
 using System.Linq;
 using System.Runtime.Intrinsics.Arm;
 using System.Text; // 追加: Encoding 等のため
@@ -27,6 +26,7 @@ namespace _2vdm_spec_generator.ViewModel
         private readonly GuiPositionStore _positionStore = new();
         private readonly ScreenListService _screenListService = new();
         private readonly ProjectManagementService _projectManager = new();
+        private bool _suppressGuiElementUpdate;
 
         // ========== バインド可能プロパティ (ObservableProperty により自動でプロパティが生成される) ===========
         [ObservableProperty] private string selectedFolderPath;
@@ -56,10 +56,24 @@ namespace _2vdm_spec_generator.ViewModel
         private static readonly Regex BulletNormalizeRegex =
             new Regex(@"^(?<indent>\s*)(?:\*|•|⦁)\s+", RegexOptions.Compiled);
 
+        partial void OnGuiElementsChanged(ObservableCollection<GuiElement> value)
+        {
+            if (value == null) return;
+            value.CollectionChanged -= GuiElements_CollectionChanged;
+            value.CollectionChanged += GuiElements_CollectionChanged;
+        }
 
-        // ===== Markdown 正規化 =====
-        // 異なるエディタ由来のMarkdown（BOM/改行/NBSPなど）の揺れを吸収する。
-        private static string NormalizeMarkdownText(string markdown)
+        private void GuiElements_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (_suppressGuiElementUpdate) return;
+            // GUIElement を正として Markdown/VDM を更新する
+            UpdateMarkdownAndVdmFromGuiElements();
+        }
+
+
+// ===== Markdown 正規化 =====
+// 異なるエディタ由来のMarkdown（BOM/改行/NBSPなど）の揺れを吸収する。
+private static string NormalizeMarkdownText(string markdown)
         {
             if (markdown == null) return string.Empty;
 
@@ -355,6 +369,31 @@ namespace _2vdm_spec_generator.ViewModel
             {
                 // 索引構築失敗は黙殺（フォールバック探索で救済する）
             }
+        }
+
+        private async Task OnPositionsChangedAsync(IEnumerable<GuiElement> elements)
+        {
+            if (elements == null) return;
+            _suppressGuiElementUpdate = true;
+            try
+            {
+                GuiElements = new ObservableCollection<GuiElement>(elements);
+            }
+            finally
+            {
+                _suppressGuiElementUpdate = false;
+            }
+
+            // SavePositions is synchronous (void). Run it on a background thread and await that Task.
+            await Task.Run(() => _projectManager.SavePositions(SelectedItem.FullPath, elements));
+            UpdateMarkdownAndVdmFromGuiElements();
+        }
+
+        private void UpdateMarkdownAndVdmFromGuiElements()
+        {
+            var md = _projectManager.UiToMarkdown(GuiElements, SelectedItem?.Name);
+            MarkdownContent = md;
+            VdmContent = _projectManager.MarkdownToVdm(md);
         }
 
 
@@ -1032,22 +1071,28 @@ namespace _2vdm_spec_generator.ViewModel
 
             try
             {
+                // ボタン → イベントの参照（Target）を更新
+                foreach (var b in GuiElements.Where(g => g.Type == GuiElementType.Button))
+                {
+                    var t = (b.Target ?? string.Empty).Trim();
+                    if (string.Equals(t, oldTarget, StringComparison.Ordinal))
+                        b.Target = newTarget;
+                }
+                
+
+                el.Name = newTarget;
+                el.Target = newTarget;
+
                 string currentMarkdown = GetCurrentMarkdown(mdPath);
 
-                string updatedMarkdown = _uiToMd.ReplaceEventTargetInMarkdown(currentMarkdown, oldTarget, newTarget);
-
-                if (string.Equals(currentMarkdown, updatedMarkdown, StringComparison.Ordinal))
-                {
-                    await Application.Current.MainPage.DisplayAlert(
-                        "情報",
-                        "置換対象が見つかりませんでした（イベント一覧の形式が想定と異なる可能性があります）。",
-                        "OK"
-                    );
-                    return;
-                }
-
-                var (normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
-                updatedMarkdown = normalizedMd;
+                var　(normalizedMd, newVdm) = _projectManager.UpdateMarkdownFromElements(
+                    mdPath,
+                    GuiElements,
+                    currentMarkdown,
+                    saveVdm: true,
+                    savePositions: true);
+                
+                string updatedMarkdown = normalizedMd;
 
                 // positions.json の名前キーをリネーム（イベントノードの表示名が変わるため）
                 _projectManager.RenamePosition(mdPath, oldTarget, newTarget);
@@ -1144,26 +1189,18 @@ namespace _2vdm_spec_generator.ViewModel
                     return;
                 }
 
-                string updatedMarkdown = _uiToMd.ReplaceBranchLineInMarkdown(
+                parent.Branches[branchIndex].Condition = newCond;
+                parent.Branches[branchIndex].Target = newTarget;
+                
+                var (normalizedMd, newVdm) = _projectManager.UpdateMarkdownFromElements(
+                    mdPath,
+                    GuiElements,
                     currentMarkdown,
-                    parentEventLabel,
-                    branchIndex,
-                    newCond,
-                    newTarget
-                );
-
-                if (string.Equals(currentMarkdown, updatedMarkdown, StringComparison.Ordinal))
-                {
-                    await Application.Current.MainPage.DisplayAlert(
-                        "情報",
-                        "置換対象が見つかりませんでした（イベント一覧の形式やインデントを確認してください）。",
-                        "OK"
+                    saveVdm: true, 
+                    savePositions: true
                     );
-                    return;
-                }
 
-                var(normalizedMd, newVdm) = _projectManager.UpdateFile(mdPath, updatedMarkdown, GuiElements, saveVdm: true, savePositions: true);
-                updatedMarkdown = normalizedMd;
+                string updatedMarkdown = normalizedMd;
 
                 // 反映して再解析
                 MarkdownContent = updatedMarkdown;
