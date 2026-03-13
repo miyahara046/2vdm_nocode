@@ -83,50 +83,44 @@ namespace _2vdm_spec_generator.Services
                 return Enumerable.Empty<string>();
             }
         }
-
-        public async Task EnsureScreenListHasClassAsync(string selectedFolderPath, string selectedItemFullPath, string className)
+        public Task<bool> EnsureScreenListHasClassAsync(string selectedFolderPath, string selectedItemFullPath, string className)
         {
-            if (string.IsNullOrWhiteSpace(className)) return;
-
-            try
             {
-                string basePath = selectedFolderPath;
-                if (string.IsNullOrWhiteSpace(basePath) && !string.IsNullOrWhiteSpace(selectedItemFullPath))
-                    basePath = Path.GetDirectoryName(selectedItemFullPath);
+                if (string.IsNullOrWhiteSpace(className)) return Task.FromResult(false);
 
-                if (string.IsNullOrWhiteSpace(basePath) || !Directory.Exists(basePath))
-                    return;
-
-                var screenListFile = FindScreenListFilePath(basePath, selectedItemFullPath: null);
-
-                if (screenListFile == null)
+                try
                 {
-                    screenListFile = Path.Combine(basePath, "ScreenList.md");
-                    var init = "# 画面一覧" + Environment.NewLine + Environment.NewLine;
-                    File.WriteAllText(screenListFile, init, Encoding.UTF8);
+                    string basePath = selectedFolderPath;
+                    if (string.IsNullOrWhiteSpace(basePath) && !string.IsNullOrWhiteSpace(selectedItemFullPath))
+                        basePath = Path.GetDirectoryName(selectedItemFullPath);
+
+                    if (string.IsNullOrWhiteSpace(basePath) || !Directory.Exists(basePath))
+                        return Task.FromResult(false);
+
+                    var screenListFile = FindScreenListFilePath(basePath, selectedItemFullPath: null);
+
+                    if (screenListFile == null)
+                    {
+                        screenListFile = Path.Combine(basePath, "ScreenList.md");
+                        var init = "# 画面一覧" + Environment.NewLine + Environment.NewLine;
+                        File.WriteAllText(screenListFile, init, Encoding.UTF8);
+                    }
+
+                    var content = File.ReadAllText(screenListFile);
+                    var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).ToList();
+                    var targetItem = $"- {className}";
+
+                    bool exists = lines.Any(l => string.Equals((l ?? string.Empty).Trim(), targetItem, StringComparison.OrdinalIgnoreCase));
+                    if (exists) return Task.FromResult(false);
+
+                    var newContent = _uiToMd.AddScreenList(content, className);
+                    File.WriteAllText(screenListFile, newContent, Encoding.UTF8);
+
+                    return Task.FromResult(true);
                 }
-
-                var content = File.ReadAllText(screenListFile);
-                var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).ToList();
-                var targetItem = $"- {className}";
-
-                bool exists = lines.Any(l => string.Equals((l ?? string.Empty).Trim(), targetItem, StringComparison.OrdinalIgnoreCase));
-                if (exists) return;
-
-                var newContent = _uiToMd.AddScreenList(content, className);
-                File.WriteAllText(screenListFile, newContent, Encoding.UTF8);
-
-                // 実用性優先：ここで通知（ViewModelに戻したいなら戻してOK）
-                if (Application.Current?.MainPage != null)
+                catch (Exception ex)
                 {
-                    await Application.Current.MainPage.DisplayAlert("更新", $"画面一覧に '{className}' を追加しました。", "OK");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (Application.Current?.MainPage != null)
-                {
-                    await Application.Current.MainPage.DisplayAlert("エラー", $"画面一覧更新中にエラーが発生しました: {ex.Message}", "OK");
+                    return Task.FromResult(false);
                 }
             }
         }

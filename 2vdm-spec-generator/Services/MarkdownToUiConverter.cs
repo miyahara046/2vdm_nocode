@@ -6,564 +6,382 @@ using _2vdm_spec_generator.ViewModel;
 
 namespace _2vdm_spec_generator.Services
 {
+    /// <summary>
+    /// Markdown 仕様を解析し、CTM編集の基礎となる GUIElement 群を生成する。
+    /// 「画面一覧仕様」と「画面仕様（有効ボタン一覧／イベント一覧）」を対象に elements を生成する。
+    /// </summary>
     internal class MarkdownToUiConverter
     {
+        // 箇条書き（- / * / ・ / • / ⦁）の本文を取り出す
+        private static readonly Regex BulletPattern =
+            new Regex(@"^\s*(?:-|\*|・|•|⦁)\s+(?<Text>.+?)\s*$", RegexOptions.Compiled);
 
-        private static readonly Regex BulletPattern = new Regex(@"^\s*(?:-|\*|•|⦁)\s+(?<Text>.+?)\s*$", RegexOptions.Compiled);
+        // "左 → 右"
+        private static readonly Regex ArrowPattern =
+            new Regex(@"^(?<Left>.*?)\s*→\s*(?<Right>.*)$", RegexOptions.Compiled);
 
-        private static readonly Regex EventPattern = new Regex(@"^(?<Name>.*?)\s*→\s*(?<Target>.*)$", RegexOptions.Compiled);
-
-        private static readonly Regex OperationPattern = new Regex(@"^(?<Operation>.*?)(?<Trigger>押下|で)\s*→\s*(?<Target>.*)$", RegexOptions.Compiled);
-
-        private void ArrangeElements(List<GuiElement> elements)
-        {
-            float startX = 20;
-            float startY = 40;
-            float paddingY = 80;
-            float paddingX = 0;
-
-            // ==== Screen ====
-            float currentY = startY;
-            foreach (var screen in elements.Where(e => e.Type == GuiElementType.Screen))
-            {
-                screen.X = startX;
-                screen.Y = currentY;
-                currentY += screen.Height + paddingY;
-            }
-
-            // ==== Timeout ====
-            float timeoutX = startX + paddingX;
-            currentY = startY;
-            foreach (var timeout in elements.Where(e => e.Type == GuiElementType.Timeout))
-            {
-                timeout.X = timeoutX;
-                timeout.Y = currentY;
-                currentY += timeout.Height + paddingY;
-            }
-
-            // ==== Button + Event Group ====
-            float buttonX = timeoutX + paddingX;
-            float eventX = buttonX + 120;
-
-            currentY = startY;
-            var buttons = elements.Where(e => e.Type == GuiElementType.Button).ToList();
-
-            foreach (var button in buttons)
-            {
-                // ボタン配置
-                button.X = buttonX;
-                button.Y = currentY;
-
-                // 同じ Target を持つ Event 全て取得
-                var relatedEvents = elements
-                    .Where(e => e.Type == GuiElementType.Event &&
-                        (
-                            // 1) Target が存在して button.Target と一致
-                            (!string.IsNullOrWhiteSpace(e.Target) && !string.IsNullOrWhiteSpace(button.Target) &&
-                             string.Equals(e.Target.Trim(), button.Target.Trim(), StringComparison.OrdinalIgnoreCase))
-                            ||
-                            // 2) Target が存在して button.Name と一致（イベントがボタン名をターゲットにしている場合）
-                            (!string.IsNullOrWhiteSpace(e.Target) && !string.IsNullOrWhiteSpace(button.Name) &&
-                             string.Equals(e.Target.Trim(), button.Name.Trim(), StringComparison.OrdinalIgnoreCase))
-                            ||
-                            // 3) Name が存在して button.Target と一致（稀な逆方向マッピング）
-                            (!string.IsNullOrWhiteSpace(e.Name) && !string.IsNullOrWhiteSpace(button.Target) &&
-                             string.Equals(e.Name.Trim(), button.Target.Trim(), StringComparison.OrdinalIgnoreCase))
-                        ))
-                    .ToList();
-
-                float eventY = currentY;
-
-                foreach (var evt in relatedEvents)
-                {
-                    evt.X = eventX;
-                    evt.Y = eventY;
-
-                    eventY += evt.Height + 10;  // イベント間の間隔
-                }
-
-                // Eventが複数ある場合、縦に並んだ高さに合わせて次のボタンのYを調整
-                float blockHeight = Math.Max(button.Height, (eventY - currentY));
-                currentY += blockHeight + paddingY;
-            }
-
-            // ==== Targetを持たない孤立イベント ====
-            currentY += paddingY;
-            foreach (var evt in elements.Where(e => e.Type == GuiElementType.Event && e.X == 0 && e.Y == 0))
-            {
-                evt.X = eventX;
-                evt.Y = currentY;
-                currentY += evt.Height + paddingY;
-            }
-        }
-
-
-
-
-
+        // "ボタン 押下 → xxx"（ボタン名部分は空白を許容）
+        private static readonly Regex ButtonOperationPattern =
+            new Regex(@"^(?<Button>.*?)(?<Trigger>押下)\s*→\s*(?<Right>.*)$", RegexOptions.Compiled);
 
         private static bool TryGetBulletText(string line, out string text)
         {
             text = string.Empty;
             if (string.IsNullOrWhiteSpace(line)) return false;
 
-            var m = BulletPattern.Match(line);
+            var m = BulletPattern.Match(line.TrimEnd('\r'));
             if (!m.Success) return false;
 
             text = (m.Groups["Text"].Value ?? string.Empty).Trim();
             return text.Length > 0;
         }
 
-        private static bool IsHeadingLine(string line, params string[] headings)
+        private static bool TrySplitArrow(string text, out string left, out string right)
+        {
+            left = string.Empty;
+            right = string.Empty;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            var m = ArrowPattern.Match(text.Trim());
+            if (!m.Success) return false;
+
+            left = (m.Groups["Left"].Value ?? string.Empty).Trim();
+            right = (m.Groups["Right"].Value ?? string.Empty).Trim();
+            return true;
+        }
+
+        private static bool IsHeading(string line, string headingName)
         {
             var t = (line ?? string.Empty).Trim();
-            // Markdown見出し記号が無い場合も考慮して、両方マッチさせる
-            // 例: "### 有効ボタン一覧" / "有効ボタン一覧"
-            foreach (var h in headings)
+            if (t == headingName) return true;
+
+            if (t.StartsWith("#"))
             {
-                if (t == h) return true;
-                if (t.StartsWith("#") && t.TrimStart('#', ' ').Trim() == h) return true;
+                var name = t.TrimStart('#').Trim();
+                return string.Equals(name, headingName, StringComparison.Ordinal);
             }
             return false;
         }
 
+        private static string NormalizeToken(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+            // 卒論の記述に合わせ、空白は取り除いて同一視する（日本語仕様での揺れ吸収）
+            return Regex.Replace(s.Trim(), "\\s+", "");
+        }
+
+        /// <summary>
+        /// 初期配置。
+        /// （厳密な数式再現ではなく、列構造と対応関係の維持を優先）
+        /// </summary>
+        private void ArrangeElements(List<GuiElement> elements)
+        {
+            const float leftX = 40f;
+            const float midX = 260f;
+
+            const float topMargin = 10f;
+            const float spacingY = 80f;
+            const float noTimeoutBaseY = 40f;
+
+            // サイズ調整（Timeout は楕円扱いなので幅を小さくする）
+            foreach (var e in elements)
+            {
+                if (e.Type == GuiElementType.Timeout)
+                {
+                    e.Width = 160f * 0.7f;
+                    e.Height = 45f;
+                    e.IsMovable = false;
+                }
+                else
+                {
+                    e.Width = 160f;
+                    e.Height = 45f;
+                    // movable は生成側で必要に応じて true にする
+                }
+            }
+
+            var timeout = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout);
+
+            if (timeout != null)
+            {
+                timeout.X = leftX;
+                timeout.Y = topMargin;
+            }
+
+            // Screen は左列（Timeout があっても同列に置く）
+            int iScreen = 0;
+            foreach (var s in elements.Where(e => e.Type == GuiElementType.Screen))
+            {
+                s.X = leftX;
+                s.Y = topMargin + (iScreen * spacingY);
+                s.IsMovable = true;
+                iScreen++;
+            }
+
+            // Button は Timeout の下から開始（無い場合は固定値）
+            float buttonBaseY = timeout != null ? (timeout.Y + timeout.Height + 10f) : noTimeoutBaseY;
+            int iButton = 0;
+            foreach (var b in elements.Where(e => e.Type == GuiElementType.Button))
+            {
+                b.X = leftX;
+                b.Y = buttonBaseY + (iButton * spacingY);
+                b.IsMovable = true;
+                iButton++;
+            }
+
+            // Event は「関連する Button/Timeout と同じ Y」に寄せる（無ければ末尾へ）
+            float orphanBaseY = buttonBaseY + (iButton * spacingY) + spacingY;
+            int iOrphan = 0;
+
+            foreach (var ev in elements.Where(e => e.Type == GuiElementType.Event))
+            {
+                ev.IsMovable = true;
+
+                // Timeout に紐づく Event（ev.Target が timeout.Name）
+                if (timeout != null
+                    && !string.IsNullOrWhiteSpace(ev.Target)
+                    && string.Equals(NormalizeToken(ev.Target), NormalizeToken(timeout.Name), StringComparison.Ordinal))
+                {
+                    ev.X = midX;
+                    ev.Y = timeout.Y;
+                    continue;
+                }
+
+                // Button に紐づく Event（button.Target == ev.Name）
+                var linkedBtn = elements.FirstOrDefault(b =>
+                    b.Type == GuiElementType.Button
+                    && !string.IsNullOrWhiteSpace(b.Target)
+                    && !string.IsNullOrWhiteSpace(ev.Name)
+                    && string.Equals(NormalizeToken(b.Target), NormalizeToken(ev.Name), StringComparison.Ordinal));
+
+                if (linkedBtn != null)
+                {
+                    ev.X = midX;
+                    ev.Y = linkedBtn.Y;
+                    continue;
+                }
+
+                ev.X = midX;
+                ev.Y = orphanBaseY + (iOrphan * spacingY);
+                iOrphan++;
+            }
+        }
+
+        /// <summary>
+        /// Markdown を解析し GUIElement を生成する。
+        /// - "# 画面一覧" : 画面一覧仕様
+        /// - "## xxx" : 画面仕様（有効ボタン一覧／イベント一覧）
+        /// </summary>
         public IEnumerable<GuiElement> Convert(string markdown)
         {
             var elements = new List<GuiElement>();
             if (string.IsNullOrWhiteSpace(markdown)) return elements;
 
-            var lines = markdown.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+            var lines = markdown
+                .Replace("\r\n", "\n")
+                .Replace("\r", "\n")
+                .Split('\n')
+                .ToList();
+
             if (lines.Count == 0) return elements;
 
-            // 1行目が "# 画面一覧" の場合
-            if (lines[0].Trim() == "# 画面一覧")
+            var first = (lines[0] ?? string.Empty).Trim();
+
+            // 画面一覧仕様
+            if (string.Equals(first, "# 画面一覧", StringComparison.Ordinal))
             {
+                // ヘッダ要素（ツール側の扱いに合わせ、Screen型で「画面一覧」を入れる）
+                elements.Add(new GuiElement
+                {
+                    Type = GuiElementType.Screen,
+                    Name = "# 画面一覧",
+                    Target = null,
+                    Description = string.Empty
+                });
+
                 for (int i = 1; i < lines.Count; i++)
                 {
-                    var line = lines[i].Trim();
-                    if (TryGetBulletText(line, out var bulletText))
+                    if (!TryGetBulletText(lines[i], out var screenName)) continue;
+                    elements.Add(new GuiElement
                     {
-                        var name = bulletText;
-                        elements.Add(new GuiElement
-                        {
-                            Type = GuiElementType.Screen,
-                            Name = name,
-                            Description = "",
-                            X = 200,
-                            Y = 80 + elements.Count * 90
-                        });
-                    }
+                        Type = GuiElementType.Screen,
+                        Name = screenName.Trim(),
+                        Target = null,
+                        Description = string.Empty
+                    });
                 }
+
                 ArrangeElements(elements);
                 return elements;
             }
-            else if (lines[0].Trim().StartsWith("## "))
+
+            // 画面仕様
+            if (!first.StartsWith("## ")) return elements;
+
+            var screenName0 = first.Trim();
+            elements.Add(new GuiElement
             {
-                // 1. Timeout 抽出
-                if (lines.Count > 1)
+                Type = GuiElementType.Screen,
+                Name = screenName0,
+                Target = null,
+                Description = string.Empty
+            });
+
+            // タイムアウト（2行目の箇条書き: "- xxxでタイムアウト" など）
+            string timeoutName = null;
+            if (lines.Count > 1 && TryGetBulletText(lines[1], out var timeoutText))
+            {
+                var idx = timeoutText.IndexOf('で');
+                timeoutName = (idx > 0 ? timeoutText.Substring(0, idx) : timeoutText).Trim();
+
+                if (!string.IsNullOrWhiteSpace(timeoutName))
                 {
-                    var second = lines[1].Trim();
-                    if (TryGetBulletText(second, out var bulletText))
+                    elements.Add(new GuiElement
                     {
-                        var content = bulletText;
+                        Type = GuiElementType.Timeout,
+                        Name = timeoutName,
+                        Target = null,
+                        Description = string.Empty,
+                        IsMovable = false
+                    });
+                }
+            }
 
-                        // タイムアウト → 遷移先 の形式に対応
-                        var timeoutMatch = EventPattern.Match(content);
-                        if (timeoutMatch.Success)
+            // 有効ボタン一覧
+            int buttonHeadingIdx = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (IsHeading(lines[i], "有効ボタン一覧")) { buttonHeadingIdx = i; break; }
+            }
+
+            var buttonNames = new HashSet<string>(StringComparer.Ordinal);
+            if (buttonHeadingIdx != -1)
+            {
+                for (int i = buttonHeadingIdx + 1; i < lines.Count; i++)
+                {
+                    var t = (lines[i] ?? string.Empty).TrimStart();
+                    if (t.StartsWith("###")) break;
+
+                    if (!TryGetBulletText(lines[i], out var btn)) continue;
+                    btn = btn.Trim();
+                    if (!buttonNames.Add(btn)) continue;
+
+                    elements.Add(new GuiElement
+                    {
+                        Type = GuiElementType.Button,
+                        Name = btn,
+                        Target = null,
+                        Description = string.Empty
+                    });
+                }
+            }
+
+            // イベント一覧
+            int eventHeadingIdx = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (IsHeading(lines[i], "イベント一覧")) { eventHeadingIdx = i; break; }
+            }
+
+            if (eventHeadingIdx != -1)
+            {
+                for (int i = eventHeadingIdx + 1; i < lines.Count; i++)
+                {
+                    if (!TryGetBulletText(lines[i], out var evtText)) continue;
+
+                    // 1) "ボタン 押下 → ..."（分岐は → の右が空）
+                    var op = ButtonOperationPattern.Match(evtText);
+                    if (op.Success)
+                    {
+                        var btnName = (op.Groups["Button"].Value ?? string.Empty).Trim();
+                        var right = (op.Groups["Right"].Value ?? string.Empty).Trim();
+
+                        var btn = elements.FirstOrDefault(e => e.Type == GuiElementType.Button
+                            && string.Equals(e.Name?.Trim(), btnName, StringComparison.Ordinal));
+                        if (btn == null) continue;
+
+                        // 分岐（"押下 →"）
+                        if (string.IsNullOrWhiteSpace(right))
                         {
-                            var name = timeoutMatch.Groups["Name"].Value.Trim();
-                            var target = timeoutMatch.Groups["Target"].Value.Trim();
+                            var branchEventName = $"{btnName}押下";
+                            btn.Target = branchEventName;
 
-                            // "〇〇で" の部分をTimeoutのNameとして切り出す
-                            var idx = name.IndexOf('で');
-                            var timeoutName = idx > 0 ? name.Substring(0, idx).Trim() : name;
+                            var branchEvent = new GuiElement
+                            {
+                                Type = GuiElementType.Event,
+                                Name = branchEventName,
+                                Target = null,
+                                Description = string.Empty,
+                                Branches = new List<GuiElement.EventBranch>()
+                            };
 
-                            elements.Add(new GuiElement
+                            int j = i + 1;
+                            for (; j < lines.Count; j++)
                             {
-                                Type = GuiElementType.Timeout,
-                                Name = timeoutName,
-                                Target = target,
-                                Description = ""
-                            });
-                        }
-                        else
-                        {
-                            // 従来の "〇〇で" の形式に対応
-                            var idx = content.IndexOf('で');
-                            if (idx > 0)
-                            {
-                                var name = content.Substring(0, idx).Trim();
-                                elements.Add(new GuiElement
+                                if (!TryGetBulletText(lines[j], out var branchLine)) break;
+                                if (ButtonOperationPattern.IsMatch(branchLine)) break;
+
+                                // 分岐行は "条件 → 遷移先" の形式を期待する
+                                if (!TrySplitArrow(branchLine, out var condRaw, out var tarRaw)) break;
+
+                                var bLeft = NormalizeToken(condRaw);
+                                if (string.Equals(bLeft, "タイムアウト", StringComparison.Ordinal)) break;
+
+                                var cond = NormalizeToken(condRaw);
+                                var tar = NormalizeToken(tarRaw);
+                                if (tar.EndsWith("へ", StringComparison.Ordinal))
+                                    tar = tar.Substring(0, tar.Length - 1);
+
+                                branchEvent.Branches.Add(new GuiElement.EventBranch
                                 {
-                                    Type = GuiElementType.Timeout,
-                                    Name = name,
-                                    Description = ""
+                                    Condition = cond,
+                                    Target = tar
                                 });
                             }
-                        }
-                    }
-                }
 
-                // 2. Button 抽出 (変更なし)
-                var buttonElements = new List<GuiElement>();
-                var seenButtons = new HashSet<string>(StringComparer.Ordinal);
-                if (lines.Count > 2)
-                {
-                    for (int i = 2; i < lines.Count; i++)
-                    {
-                        var line = lines[i].Trim();
-                        if (IsHeadingLine(line, "有効ボタン一覧"))
+                            elements.Add(branchEvent);
+
+                            // 分岐行を読み飛ばす
+                            i = j - 1;
+                            continue;
+                        }
+
+                        // 非分岐: "押下 → 右"
+                        btn.Target = right;
+
+                        // Event 要素は「遷移先」や「イベント名」を Name に持たせる（UIToMarkdown側で正とする）
+                        elements.Add(new GuiElement
                         {
-                            for (int k = i + 1; k < lines.Count; k++)
-                            {
-                                var sub = lines[k].Trim();
-
-                                if (string.IsNullOrEmpty(sub) || IsHeadingLine(sub, "イベント一覧") || sub.StartsWith("### ") || sub.StartsWith("## "))
-                                {
-                                    goto EndOfButtonList;
-                                }
-
-                                if (TryGetBulletText(sub, out var bulletText))
-                                {
-                                    var name = bulletText;
-
-                                    // 重複排除（増殖ストッパー）
-                                    if (!seenButtons.Add(name))
-                                        continue;
-
-                                    var newButton = new GuiElement
-                                    {
-                                        Type = GuiElementType.Button,
-                                        Name = name,
-                                        Description = ""
-                                    };
-                                    buttonElements.Add(newButton);
-                                    elements.Add(newButton);
-                                }
-
-                            }
-                        EndOfButtonList:;
-                            break;
-                        }
+                            Type = GuiElementType.Event,
+                            Name = right,
+                            Target = right,
+                            Description = string.Empty
+                        });
+                        continue;
                     }
-                }
 
-                // 3. Event / Operation 抽出
-                if (lines.Count > 2)
-                {
-                    for (int i = 2; i < lines.Count; i++)
+                    // 2) "タイムアウト → xxx"
+                    if (TrySplitArrow(evtText, out var left, out var right2))
                     {
-                        var line = lines[i].Trim();
-                        if(IsHeadingLine(line, "イベント一覧"))
+                        left = NormalizeToken(left);
+                        right2 = NormalizeToken(right2);
+
+                        if (string.Equals(left, "タイムアウト", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(timeoutName))
                         {
-                            for (int k = i + 1; k < lines.Count; k++)
+                            elements.Add(new GuiElement
                             {
-                                var subRaw = lines[k];
-
-                                var sub = subRaw.Trim();
-
-                                // 次のヘッダーが出現したら終了
-                                if (sub.StartsWith("### ") || sub.StartsWith("## "))
-                                {
-                                    goto EndOfEventList;
-                                }
-
-                                if (TryGetBulletText(sub, out var bulletText))
-                                {
-                                    var content = bulletText;
-
-
-                                    // 押下/で イベントの解析 (OperationPatternを使用)
-                                    var opMatch = OperationPattern.Match(content);
-
-                                    if (opMatch.Success)
-                                    {
-                                        var opName = opMatch.Groups["Operation"].Value.Trim();
-                                        var targetName = opMatch.Groups["Target"].Value.Trim(); // →の右側
-
-                                        // --- 対応ボタン検索（正規化して buttonElements -> elements を探索） ---
-                                        GuiElement correspondingButton = null;
-                                        if (!string.IsNullOrWhiteSpace(opName))
-                                        {
-                                            string norm = opName.Trim();
-                                            var candidates = new List<string> { norm, norm.Replace("押下", "").Trim() };
-
-                                            foreach (var cand in candidates)
-                                            {
-                                                correspondingButton = buttonElements
-                                                    .FirstOrDefault(b => !string.IsNullOrWhiteSpace(b.Name) && string.Equals(b.Name.Trim(), cand, StringComparison.OrdinalIgnoreCase));
-                                                if (correspondingButton != null) break;
-
-                                                correspondingButton = elements
-                                                    .FirstOrDefault(e => e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Name) && string.Equals(e.Name.Trim(), cand, StringComparison.OrdinalIgnoreCase));
-                                                if (correspondingButton != null) break;
-                                            }
-                                        }
-
-                                        // targetNameが空の場合はネストされたリストを解析して Branches を作る
-                                        if (string.IsNullOrEmpty(targetName))
-                                        {
-                                            int startK = k + 1;
-                                            var branches = new List<GuiElement.EventBranch>();
-
-                                            // ネストされたリストは UiToMarkdownConverter では "  - {cond} → {target}" の形式で出力されるため
-                                            // 行頭に2つ以上のスペースまたはタブがある行をネスト行とみなす
-                                            // 分岐行の直後は、ネストされていなくても bullet が続くことがある（外部エディタ対策）
-                                            // そのため「bullet が続く限り」branches 候補として読む。
-                                            // ただし、新しいイベント（例: "2押下 → ..." や "タイムアウト → ..."）が来たら branches を終了する。
-                                            while (startK < lines.Count)
-                                            {
-                                                var nestedRaw = lines[startK];
-                                                if (string.IsNullOrWhiteSpace(nestedRaw)) break;
-
-                                                // ヘッダに到達したら終了
-                                                var nestedTrimAll = nestedRaw.Trim();
-                                                if (nestedTrimAll.StartsWith("### ") || nestedTrimAll.StartsWith("## "))
-                                                    break;
-
-                                                // bullet 行でなければ終了
-                                                if (!TryGetBulletText(nestedTrimAll, out var nestedContent))
-                                                    break;
-
-                                                // 次の「通常イベント」っぽいものが来たら branches 終了（外側ループに任せる）
-                                                // 例: "1押下 → ..." / "タイムアウト → 画面Aへ"
-                                                if (OperationPattern.IsMatch(nestedContent) || nestedContent.StartsWith("タイムアウト"))
-                                                    break;
-
-                                                // branch は基本 "条件 → 遷移先" で書かれる
-                                                var nestedMatch = EventPattern.Match(nestedContent);
-                                                if (nestedMatch.Success)
-                                                {
-                                                    var cond = nestedMatch.Groups["Name"].Value.Trim();
-                                                    var nestedTarget = nestedMatch.Groups["Target"].Value.Trim();
-
-                                                    branches.Add(new GuiElement.EventBranch
-                                                    {
-                                                        Condition = cond,
-                                                        Target = nestedTarget
-                                                    });
-                                                }
-                                                else
-                                                {
-                                                    // "→" が無い場合は条件だけ、として保持（必要なら）
-                                                    branches.Add(new GuiElement.EventBranch
-                                                    {
-                                                        Condition = nestedContent,
-                                                        Target = string.Empty
-                                                    });
-                                                }
-
-                                                startK++;
-                                            }
-
-                                            // k を読み進めた位置に戻す
-                                            k = Math.Max(k, startK - 1);
-
-                                            if (branches.Count > 0)
-                                            {
-                                                // 親イベント要素を作成して Branches を格納する
-                                                var eventEl = new GuiElement
-                                                {
-                                                    Type = GuiElementType.Event,
-                                                    Name = string.IsNullOrWhiteSpace(opName) ? "押下" : $"{opName}押下",
-                                                    Target = correspondingButton?.Target ?? opName,
-                                                    Description = "",
-                                                    Branches = branches
-                                                };
-                                                elements.Add(eventEl);
-                                            }
-                                            // ブランチがない場合は何もしない
-                                        }
-                                        else
-                                        {
-                                            // 押下イベントをEventとして追加 (Targetが空でない場合のみ)
-                                            var evt = new GuiElement
-                                            {
-                                                Type = GuiElementType.Event,
-                                                Name = targetName,
-                                                Target = targetName,
-                                                Description = ""
-                                            };
-                                            elements.Add(evt);
-
-                                            // --- 追加: 単一イベントを見つけた場合、対応ボタンに Target を設定 ---
-                                            if (correspondingButton != null && string.IsNullOrWhiteSpace(correspondingButton.Target))
-                                            {
-                                                // 同じ Target を持つボタンが他にないか簡易チェック
-                                                var duplicate = elements.Any(e => e != correspondingButton && e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Target)
-                                                                                 && string.Equals(e.Target.Trim(), targetName.Trim(), StringComparison.OrdinalIgnoreCase));
-                                                if (!duplicate)
-                                                {
-                                                    correspondingButton.Target = targetName;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        // 通常のイベント解析 (EventPatternを使用)
-                                        var eventMatch = EventPattern.Match(content);
-                                        if (eventMatch.Success)
-                                        {
-                                            // 左辺と右辺を取得
-                                            var leftName = eventMatch.Groups["Name"].Value.Trim();
-                                            var rightTarget = eventMatch.Groups["Target"].Value.Trim();
-
-                                            if (string.IsNullOrEmpty(rightTarget))
-                                            {
-                                                // 例: "- タイムアウト →" のように右辺が空 -> 左辺を Name/Target として扱う
-                                                elements.Add(new GuiElement
-                                                {
-                                                    Type = GuiElementType.Event,
-                                                    Name = leftName,
-                                                    Target = leftName,
-                                                    Description = ""
-                                                });
-                                            }
-                                            else
-                                            {
-                                                // 改良: 左辺がタイムアウト（またはタイムアウトを含む表現）の場合は既存の Timeout 要素に紐づける
-                                                GuiElement timeoutEl = null;
-
-                                                // 1) 左辺が Timeout 名と完全一致するケース
-                                                timeoutEl = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout && e.Name == leftName);
-
-                                                // 2) 左辺が Timeout 名を含む、または Timeout 名が左辺に含まれるケース
-                                                if (timeoutEl == null)
-                                                {
-                                                    timeoutEl = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout && !string.IsNullOrWhiteSpace(e.Name) && leftName.Contains(e.Name));
-                                                }
-                                                if (timeoutEl == null)
-                                                {
-                                                    timeoutEl = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout && !string.IsNullOrWhiteSpace(e.Name) && e.Name.Contains(leftName));
-                                                }
-
-                                                // 3) 左辺が 'タイムアウト' を直接含む場合、タイムアウト要素が一つだけならそれに紐づける
-                                                if (timeoutEl == null && leftName.Contains("タイムアウト"))
-                                                {
-                                                    timeoutEl = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout);
-                                                }
-
-                                                if (timeoutEl != null)
-                                                {
-                                                    // Event は右側を Name (表示対象)、Target を timeout の Name にする
-                                                    var evt = new GuiElement
-                                                    {
-                                                        Type = GuiElementType.Event,
-                                                        Name = rightTarget,
-                                                        Target = timeoutEl.Name,
-                                                        Description = ""
-                                                    };
-                                                    elements.Add(evt);
-
-                                                    // ボタン探索：左辺や右辺を手がかりに対応ボタンを探す（leftName を優先）
-                                                    GuiElement correspondingButton = null;
-                                                    if (!string.IsNullOrWhiteSpace(leftName))
-                                                    {
-                                                        var cand = leftName.Trim();
-                                                        // 候補: exact, without 押下
-                                                        var candidates = new List<string> { cand, cand.Replace("押下", "").Trim() };
-                                                        foreach (var c in candidates)
-                                                        {
-                                                            correspondingButton = buttonElements
-                                                                .FirstOrDefault(b => !string.IsNullOrWhiteSpace(b.Name) && string.Equals(b.Name.Trim(), c, StringComparison.OrdinalIgnoreCase));
-                                                            if (correspondingButton != null) break;
-
-                                                            correspondingButton = elements
-                                                                .FirstOrDefault(e => e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Name) && string.Equals(e.Name.Trim(), c, StringComparison.OrdinalIgnoreCase));
-                                                            if (correspondingButton != null) break;
-                                                        }
-                                                    }
-
-                                                    if (correspondingButton != null && string.IsNullOrWhiteSpace(correspondingButton.Target))
-                                                    {
-                                                        var dup = elements.Any(e => e != correspondingButton && e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Target)
-                                                                                   && string.Equals(e.Target.Trim(), evt.Target?.Trim(), StringComparison.OrdinalIgnoreCase));
-                                                        if (!dup)
-                                                            correspondingButton.Target = evt.Target;
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    // 通常の "A → B" は右辺を Name/Target にする（従来挙動）
-                                                    var evt = new GuiElement
-                                                    {
-                                                        Type = GuiElementType.Event,
-                                                        Name = rightTarget,
-                                                        Target = rightTarget,
-                                                        Description = ""
-                                                    };
-                                                    elements.Add(evt);
-
-                                                    // ボタン探索：左辺や右辺を手がかりに対応ボタンを探す（leftName を優先）
-                                                    GuiElement correspondingButton = null;
-                                                    if (!string.IsNullOrWhiteSpace(leftName))
-                                                    {
-                                                        var cand = leftName.Trim();
-                                                        var candidates = new List<string> { cand, cand.Replace("押下", "").Trim() };
-                                                        foreach (var c in candidates)
-                                                        {
-                                                            correspondingButton = buttonElements
-                                                                .FirstOrDefault(b => !string.IsNullOrWhiteSpace(b.Name) && string.Equals(b.Name.Trim(), c, StringComparison.OrdinalIgnoreCase));
-                                                            if (correspondingButton != null) break;
-
-                                                            correspondingButton = elements
-                                                                .FirstOrDefault(e => e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Name) && string.Equals(e.Name.Trim(), c, StringComparison.OrdinalIgnoreCase));
-                                                            if (correspondingButton != null) break;
-                                                        }
-                                                    }
-
-                                                    if (correspondingButton != null && string.IsNullOrWhiteSpace(correspondingButton.Target))
-                                                    {
-                                                        var dup = elements.Any(e => e != correspondingButton && e.Type == GuiElementType.Button && !string.IsNullOrWhiteSpace(e.Target)
-                                                                                   && string.Equals(e.Target.Trim(), evt.Target?.Trim(), StringComparison.OrdinalIgnoreCase));
-                                                        if (!dup)
-                                                            correspondingButton.Target = evt.Target;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        else
-                                        {
-                                            // '→' がない、またはその他の通常のイベント
-                                            // ここで、イベント名が既存の Timeout 名と一致するなら Target にセットしておくと親和性が上がる
-                                            var possibleName = content;
-                                            var timeout = elements.FirstOrDefault(e => e.Type == GuiElementType.Timeout && e.Name == possibleName);
-                                            if (timeout != null)
-                                            {
-                                                elements.Add(new GuiElement
-                                                {
-                                                    Type = GuiElementType.Event,
-                                                    Name = possibleName,
-                                                    Target = possibleName,
-                                                    Description = ""
-                                                });
-                                            }
-                                            else
-                                            {
-                                                elements.Add(new GuiElement
-                                                {
-                                                    Type = GuiElementType.Event,
-                                                    Name = content,
-                                                    Description = ""
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        EndOfEventList:;
-                            ArrangeElements(elements);
-                            return elements;
+                                Type = GuiElementType.Event,
+                                Name = right2,
+                                Target = timeoutName, // Timeout と関連付け
+                                Description = string.Empty
+                            });
                         }
                     }
                 }
-                ArrangeElements(elements);
-                return elements;
             }
+
             ArrangeElements(elements);
             return elements;
         }
-
     }
 }

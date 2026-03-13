@@ -1,8 +1,9 @@
-﻿using Microsoft.Maui.Graphics;
-using _2vdm_spec_generator.ViewModel;
+﻿using _2vdm_spec_generator.ViewModel;
+using Microsoft.Maui.Graphics;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace _2vdm_spec_generator.View
 {
@@ -44,8 +45,30 @@ namespace _2vdm_spec_generator.View
             public int BranchIndex { get; set; }
         }
 
+        public List<BRectangle> HitRegions { get; } = new();
+
+        public sealed class BRectangle
+　      {
+            public GuiElement Element { get; init; }
+            public float X { get; init; }
+            public float Y { get; init; }
+            public float W { get; init; }
+            public float H { get; init; }
+            public int ZIndex { get; init; }
+
+            // Branches 属性に対応する可視ノード（条件／分岐先）の場合のみ 0 以上            
+            // 通常ノードは -1
+            public int BranchIndex { get; init; } = -1;
+
+            public RectF ToRect() => new RectF(X, Y, W, H);
+        }
+
+
         public void ArrangeNodes()
         {
+            // 最初の Screen 要素はレイアウトから除外する（スキップ）
+            var firstScreen = Elements?.FirstOrDefault(e => e.Type == GuiElementType.Screen);
+
             float timeoutY = timeoutStartY;
             foreach (var el in Elements.Where(e => e.Type == GuiElementType.Timeout))
             {
@@ -56,7 +79,7 @@ namespace _2vdm_spec_generator.View
             }
 
             int screenIndex = 0;
-            foreach (var el in Elements.Where(e => e.Type == GuiElementType.Screen))
+            foreach (var el in Elements.Where(e => e.Type == GuiElementType.Screen && !IsHeaderScreen(e)))
             {
                 if (IsUnpositioned(el))
                 {
@@ -81,9 +104,9 @@ namespace _2vdm_spec_generator.View
             var opList = Elements.Where(e => e.Type == GuiElementType.Operation).ToList();
 
             var timeoutsByName = Elements
-    .Where(e => e.Type == GuiElementType.Timeout && !string.IsNullOrWhiteSpace(e.Name))
-    .GroupBy(e => e.Name.Trim(), StringComparer.OrdinalIgnoreCase)
-    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            .Where(e => e.Type == GuiElementType.Timeout && !string.IsNullOrWhiteSpace(e.Name))
+            .GroupBy(e => e.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
             foreach (var evt in Elements.Where(e => e.Type == GuiElementType.Event))
             {
                 if (!string.IsNullOrWhiteSpace(evt.Target) && timeoutsByName.TryGetValue(evt.Target, out var timeoutEl))
@@ -273,6 +296,16 @@ namespace _2vdm_spec_generator.View
 
         private static bool IsUnpositioned(GuiElement e) => e.X == 0 && e.Y == 0;
 
+        private bool IsHeaderScreen(GuiElement e)
+            => e != null
+               && e.Type == GuiElementType.Screen
+               && string.Equals((e.Name ?? string.Empty).Trim(), "Screen", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 描画の基本関数
+        /// </summary>
+        /// <param name="canvas"></param>
+        /// <param name="dirtyRect"></param>
         public void Draw(ICanvas canvas, RectF dirtyRect)
         {
             canvas.FillColor = Colors.White;
@@ -282,10 +315,13 @@ namespace _2vdm_spec_generator.View
 
             ArrangeNodes();
 
+            HitRegions.Clear();
+            int z = 0;
+
             var positions = Elements
-    .Where(e => !string.IsNullOrWhiteSpace(e.Name))
-    .GroupBy(e => e.Name.Trim(), StringComparer.OrdinalIgnoreCase)
-    .ToDictionary(g => g.Key, g => new PointF(g.First().X, g.First().Y), StringComparer.OrdinalIgnoreCase);
+    　　.Where(e => !string.IsNullOrWhiteSpace(e.Name))
+    　　.GroupBy(e => e.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+   　　　.ToDictionary(g => g.Key, g => new PointF(g.First().X, g.First().Y), StringComparer.OrdinalIgnoreCase);
 
 
             var normPositions = new Dictionary<string, PointF>(StringComparer.OrdinalIgnoreCase);
@@ -295,9 +331,6 @@ namespace _2vdm_spec_generator.View
                 if (!normPositions.ContainsKey(norm))
                     normPositions[norm] = kv.Value;
             }
-
-            // 画面一覧名集合：外部から渡された ScreenNameSet を優先して使い、なければ Elements 内から構築
-            // 修正: ScreenNameSet が渡されていても Elements 内の Screen 名を併せて登録する（初回描画で Elements 側の画面を見落とし赤表示される問題対応）
             var screenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (ScreenNameSet != null)
             {
@@ -309,7 +342,7 @@ namespace _2vdm_spec_generator.View
             }
 
             // Elements 側の Screen 名も必ず追加する（ScreenNameSet が不完全なケースへの保険）
-            foreach (var s in Elements.Where(e => e.Type == GuiElementType.Screen && !string.IsNullOrWhiteSpace(e.Name)))
+            foreach (var s in Elements.Where(e => e.Type == GuiElementType.Screen && !IsHeaderScreen(e) && !string.IsNullOrWhiteSpace(e.Name)))
             {
                 var n = NormalizeLabel(s.Name);
                 if (!string.IsNullOrEmpty(n)) screenNames.Add(n);
@@ -351,6 +384,8 @@ namespace _2vdm_spec_generator.View
                 if (string.IsNullOrEmpty(el.Target)) continue;
                 if (el.Type == GuiElementType.Event && el.Branches != null && el.Branches.Count > 0) continue;
                 if (!string.IsNullOrWhiteSpace(el.Name) && parentEventNames.Contains(NormalizeLabel(el.Name))) continue;
+
+                if (el.Type == GuiElementType.Button && parentEventNames.Contains(NormalizeLabel(el.Target))) continue;
 
                 if (TryResolvePosition(el.Name, positions, normPositions, out var f) &&
                     TryResolvePosition(el.Target, positions, normPositions, out var t))
@@ -472,6 +507,21 @@ namespace _2vdm_spec_generator.View
                 var condTextRect = new RectF(condCenter.X - condDiamondW / 2f + 6f, condCenter.Y - 10f, condDiamondW - 12f, 20f);
                 canvas.DrawString(condText, condTextRect, HorizontalAlignment.Center, VerticalAlignment.Center);
 
+                // 条件（菱形）のヒット領域
+                if (bv.ParentEvent != null)
+                {
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = bv.ParentEvent,
+                        X = condCenter.X - condDiamondW / 2f,
+                        Y = condCenter.Y - condDiamondH / 2f,
+                        W = condDiamondW,
+                        H = condDiamondH,
+                        ZIndex = z++,
+                        BranchIndex = bv.BranchIndex
+                    });
+                }
+
                 var condRight = new PointF(condCenter.X + condDiamondW / 2f, condCenter.Y);
                 var targetLeft = new PointF(targetCenter.X - tW / 2f, targetCenter.Y);
                 canvas.StrokeColor = Colors.DarkGreen;
@@ -509,22 +559,29 @@ namespace _2vdm_spec_generator.View
                 canvas.FontSize = 12;
                 var targetLabelRect = new RectF(targetCenter.X - tW / 2f + 6f, targetCenter.Y - 10f, tW - 12f, 20f);
                 canvas.DrawString(targetLabel, targetLabelRect, HorizontalAlignment.Center, VerticalAlignment.Center);
-
-                if (!string.IsNullOrWhiteSpace(bv.Target) && TryResolvePosition(bv.Target, positions, normPositions, out var targetPos))
+                // 分岐先（矩形）のヒット領域
+                if (bv.ParentEvent != null)
                 {
-                    var targetRectRight = new PointF(targetCenter.X + tW / 2f, targetCenter.Y);
-                    var targetPoint = new PointF(targetPos.X, targetPos.Y + NodeHeight / 2f);
-                    var linkColor = targetInScreen ? Colors.Gray : Colors.Red;
-                    canvas.StrokeColor = linkColor;
-                    canvas.StrokeSize = 1.5f;
-                    canvas.DrawLine(targetRectRight, new PointF(targetPoint.X - 6f, targetPoint.Y));
-                    DrawArrow(canvas, targetRectRight, targetPoint, linkColor);
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = bv.ParentEvent,
+                        X = targetRect.X,
+                        Y = targetRect.Y,
+                        W = targetRect.Width,
+                        H = targetRect.Height,
+                        ZIndex = z++,
+                        BranchIndex = bv.BranchIndex
+                    });
                 }
             }
 
             // ノード本体描画
             foreach (var el in Elements)
             {
+
+                if (IsHeaderScreen(el))
+                    continue;
+                
                 if (el.Type == GuiElementType.Event && el.Branches != null && el.Branches.Count > 0)
                     continue;
 
@@ -591,6 +648,17 @@ namespace _2vdm_spec_generator.View
                 {
                     float ellipseW = NodeWidth / 2f;
                     var ellipseRect = new RectF(el.X + (NodeWidth - ellipseW) / 2f, el.Y, ellipseW, NodeHeight);
+
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = el,
+                        X = ellipseRect.X,
+                        Y = ellipseRect.Y,
+                        W = ellipseRect.Width,
+                        H = ellipseRect.Height,
+                        ZIndex = z++,
+                        BranchIndex = -1
+                    });
                     canvas.FillEllipse(ellipseRect);
                     canvas.DrawEllipse(ellipseRect);
 
@@ -610,6 +678,16 @@ namespace _2vdm_spec_generator.View
                 }
                 else if (el.Type == GuiElementType.Screen)
                 {
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = el,
+                        X = r.X,
+                        Y = r.Y,
+                        W = r.Width,
+                        H = r.Height,
+                        ZIndex = z++,
+                        BranchIndex = -1
+                    });
                     canvas.FillRoundedRectangle(r, 8);
                     canvas.DrawRoundedRectangle(r, 8);
 
@@ -628,6 +706,17 @@ namespace _2vdm_spec_generator.View
                 }
                 else if (el.Type == GuiElementType.Event)
                 {
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = el,
+                        X = r.X,
+                        Y = r.Y,
+                        W = r.Width,
+                        H = r.Height,
+                        ZIndex = z++,
+                        BranchIndex = -1
+                    });
+
                     canvas.FillRectangle(r);
                     canvas.DrawRectangle(r);
 
@@ -646,6 +735,17 @@ namespace _2vdm_spec_generator.View
                 }
                 else if (el.Type == GuiElementType.Operation)
                 {
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = el,
+                        X = r.X,
+                        Y = r.Y,
+                        W = r.Width,
+                        H = r.Height,
+                        ZIndex = z++,
+                        BranchIndex = -1
+                    });
+
                     using (var path = new PathF())
                     {
                         path.MoveTo(r.X + r.Width / 2f, r.Y);
@@ -673,6 +773,19 @@ namespace _2vdm_spec_generator.View
                 {
                     float ellipseW = TimeoutEllipseWidth;
                     var ellipseRect = new RectF(el.X + (NodeWidth - ellipseW) / 2f, el.Y, ellipseW, NodeHeight);
+                    
+                    HitRegions.Add(new BRectangle
+                    {
+                        Element = el,
+                        X = ellipseRect.X,
+                        Y = ellipseRect.Y,
+                        W = ellipseRect.Width,
+                        H = ellipseRect.Height,
+                        ZIndex = z++,
+                        BranchIndex = -1
+                    });
+
+
                     canvas.FillEllipse(ellipseRect);
                     canvas.DrawEllipse(ellipseRect);
 
@@ -739,17 +852,6 @@ namespace _2vdm_spec_generator.View
             var norm = NormalizeLabel(name);
             if (!string.IsNullOrEmpty(norm) && normPositions.TryGetValue(norm, out pos)) return true;
 
-            //foreach (var kv in positions)
-            //{
-            //    var kNorm = NormalizeLabel(kv.Key);
-            //    if (string.IsNullOrEmpty(kNorm)) continue;
-            //    if (kNorm.IndexOf(norm, StringComparison.OrdinalIgnoreCase) >= 0 ||
-            //        norm.IndexOf(kNorm, StringComparison.OrdinalIgnoreCase) >= 0)
-            //    {
-            //        pos = kv.Value;
-            //        return true;
-            //    }
-            //}
 
             return false;
         }
