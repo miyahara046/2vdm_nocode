@@ -4,7 +4,7 @@
 
 **2vdm-spec-generator**は、制限を加えた画面遷移システムの自然言語仕様からVDM++記述を自動生成するツールです。Markdown形式で記述された画面遷移仕様を視覚的に編集・管理し、VDM++による形式仕様に自動変換することで、仕様の正確性と一貫性を保証します。
 
-![スクリーンショット 2025-01-05 164328](https://github.com/user-attachments/assets/1e84741f-0c46-41b2-9e87-fa303ff22213)
+![スクリーンショット 2026-03-26](https://github.com/user-attachments/assets/8b236b0f-4a80-40ce-b68d-fd73fb3d6488)
 
 ## 目次
 
