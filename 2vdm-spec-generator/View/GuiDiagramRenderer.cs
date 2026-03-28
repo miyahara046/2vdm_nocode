@@ -97,9 +97,9 @@ namespace _2vdm_spec_generator.View
 #endif
         }
 
-#if WINDOWS
-         private (GuiElement element, int? branchIndex) HitTest(float x, float y)
-         {
+        // HitTest is used from multiple places; make it available on all platforms
+        private (GuiElement element, int? branchIndex) HitTest(float x, float y)
+        {
             if (_drawable.HitRegions == null || _drawable.HitRegions.Count == 0)
                 return (null, null);
 
@@ -116,7 +116,9 @@ namespace _2vdm_spec_generator.View
 
             int? bi = (best.BranchIndex >= 0) ? best.BranchIndex : (int?)null;
             return (best.Element, bi);
-         }
+        }
+
+#if WINDOWS
 private void Platform_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (!(sender is UIElement ui)) return;
