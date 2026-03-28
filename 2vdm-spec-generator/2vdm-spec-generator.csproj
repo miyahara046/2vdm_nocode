@@ -9,6 +9,7 @@
 
         <!-- SupportedOSPlatformVersion を TargetPlatformVersion 以下にする -->
         <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+        <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     </PropertyGroup>
 
     <PropertyGroup>
