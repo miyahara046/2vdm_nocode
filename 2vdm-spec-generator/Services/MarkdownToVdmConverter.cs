@@ -299,14 +299,14 @@ namespace _2vdm_spec_generator.Services
                 _operationsSb.AppendLine("  private");
                 _operationsSb.AppendLine("    タイムアウト時画面遷移: () ==> ()");
                 _operationsSb.AppendLine("    タイムアウト時画面遷移 () ==");
-                _operationsSb.AppendLine($"    「画面管理」'現在画面 := new「{screenNameForTimeOut}」();");
+                _operationsSb.AppendLine($"    「画面管理」`現在画面 := new「{screenNameForTimeOut}」();");
             }
             else
             {
                 _operationsSb.AppendLine("  private");
                 _operationsSb.AppendLine("    タイムアウト時遷移: () ==> ()");
                 _operationsSb.AppendLine("    タイムアウト時遷移 () ==");
-                _operationsSb.AppendLine("      「画面管理」'現在画面 := /* 仕様に記載なし */");
+                _operationsSb.AppendLine("      「画面管理」`現在画面 := /* 仕様に記載なし */");
             }
 
             // 分岐条件の関数定義を追加
@@ -336,7 +336,7 @@ namespace _2vdm_spec_generator.Services
             else if (action.Contains("画面へ"))
             {
                 var screenName = action.Replace("へ", "");
-                _operationsSb.AppendLine($"        <{buttonName}> ->「画面管理」'現在画面 := new「{screenName}」(),");
+                _operationsSb.AppendLine($"        <{buttonName}> ->「画面管理」`現在画面 := new「{screenName}」(),");
             }
         }
 
@@ -356,13 +356,13 @@ namespace _2vdm_spec_generator.Services
                     if (isFirst)
                     {
                         sb.Append($"        <{buttonName}> -> if {parts[0]} ()\n");
-                        sb.Append($"{new string(' ', size)}then 「画面管理」'現在画面 := new「{screenName}」()");
+                        sb.Append($"{new string(' ', size)}then 「画面管理」`現在画面 := new「{screenName}」()");
                         isFirst = false;
                     }
                     else
                     {
                         sb.Append($"{new string(' ', size)}if {parts[0]} ()\n");
-                        sb.Append($"{new string(' ', size)}then 「画面管理」'現在画面 := new「{screenName}」()");
+                        sb.Append($"{new string(' ', size)}then 「画面管理」`現在画面 := new「{screenName}」()");
                     }
                 }
             }
@@ -414,7 +414,7 @@ namespace _2vdm_spec_generator.Services
                         if (item.Contains("秒でタイムアウト"))
                         {
                             var timeoutValue = item.Replace("秒でタイムアウト", "").Trim();
-                            _valueSb.AppendLine($"  タイムアウト時間 := {timeoutValue};");
+                            _valueSb.AppendLine($"  タイムアウト時間 : nat = {timeoutValue};");
                             return;
                         }
                     }
